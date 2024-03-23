@@ -1,6 +1,5 @@
 package me.anno.remsstudio.history
 
-import me.anno.io.ISaveable
 import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.language.translation.Dict
@@ -25,8 +24,9 @@ class History : Saveable() {
     fun isEmpty() = states.isEmpty()
 
     fun clearToSize() {
+        assert(maxChanged > 0)
         synchronized(states) {
-            while (states.size > maxChanged && maxChanged > 0) {
+            while (states.size > maxChanged) {
                 states.removeAt(0)
             }
         }
@@ -99,28 +99,17 @@ class History : Saveable() {
         )
     }
 
-    override fun readInt(name: String, value: Int) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "nextInsertIndex" -> nextInsertIndex = value
-            else -> super.readInt(name, value)
-        }
-    }
-
-    override fun readObjectArray(name: String, values: Array<ISaveable?>) {
-        when (name) {
+            "nextInsertIndex" -> nextInsertIndex = value as? Int ?: return
+            "state" -> states += value as? HistoryState ?: return
             "states" -> {
+                val values = value as? Array<*> ?: return
                 synchronized(states) {
                     states += values.filterIsInstance<HistoryState>()
                 }
             }
-            else -> super.readObjectArray(name, values)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
-            "state" -> states += value as? HistoryState ?: return
-            else -> super.readObject(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 

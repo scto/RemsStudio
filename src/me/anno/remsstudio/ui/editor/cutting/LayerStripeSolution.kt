@@ -3,14 +3,13 @@ package me.anno.remsstudio.ui.editor.cutting
 import me.anno.Build
 import me.anno.animation.LoopingState
 import me.anno.audio.streams.AudioStreamRaw.Companion.bufferSize
-import me.anno.cache.instances.VideoCache
 import me.anno.config.DefaultConfig
 import me.anno.gpu.drawing.DrawGradients.drawRectGradient
 import me.anno.gpu.drawing.DrawRectangles
 import me.anno.gpu.drawing.DrawStriped.drawRectStriped
+import me.anno.io.MediaMetadata
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.max
-import me.anno.maths.Maths.mixARGB
 import me.anno.maths.Maths.nonNegativeModulo
 import me.anno.remsstudio.RemsStudio.nullCamera
 import me.anno.remsstudio.audio.AudioFXCache2
@@ -20,8 +19,9 @@ import me.anno.remsstudio.objects.Video
 import me.anno.remsstudio.ui.editor.TimelinePanel.Companion.centralTime
 import me.anno.remsstudio.ui.editor.TimelinePanel.Companion.dtHalfLength
 import me.anno.remsstudio.ui.editor.cutting.LayerView.Companion.maxLines
+import me.anno.remsstudio.ui.editor.cutting.Status.Companion.drawLoadingStatus
 import me.anno.utils.Color.black
-import me.anno.video.ffmpeg.FFMPEGMetadata
+import me.anno.utils.Color.mixARGB
 import org.joml.Vector4f
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -57,7 +57,14 @@ class LayerStripeSolution(
     }
 
     fun keepResourcesLoaded() {
-        iteratorOverGradients(emptyList(), null, false, { _, _, _, _, _, _ -> }, { _, _, _, _, _, _ -> }, ::keepFrameLoaded)
+        iteratorOverGradients(
+            emptyList(),
+            null,
+            false,
+            { _, _, _, _, _, _ -> },
+            { _, _, _, _, _, _ -> },
+            ::keepFrameLoaded
+        )
     }
 
     private fun iteratorOverGradients(
@@ -69,7 +76,7 @@ class LayerStripeSolution(
             x0: Int, x1: Int, y: Int, h: Int,
             c0: Int, c1: Int,
             frameOffset: Int, frameWidth: Int,
-            video: Video, meta: FFMPEGMetadata,
+            video: Video, meta: MediaMetadata,
             fract0: Float, fract1: Float
         ) -> Unit
     ) {
@@ -78,9 +85,6 @@ class LayerStripeSolution(
         val h = y1 - y0
 
         val xTimeCorrection = ((referenceTime - centralTime) * w / (dtHalfLength * 2)).roundToInt()
-
-        val metas = HashMap<Any, Any>()
-
         val timeOffset = (-centralTime / (2f * dtHalfLength) * w).toInt()
 
         for ((lineIndex, gradients) in lines.withIndex()) {
@@ -94,7 +98,7 @@ class LayerStripeSolution(
                 val isStriped = selectedTransform === tr || draggedTransform === tr
 
                 val video = tr as? Video
-                val meta = if (video == null) null else metas.getOrPut(video) { video.meta ?: Unit } as? FFMPEGMetadata
+                val meta = video?.meta
 
                 val hasAudio = meta?.hasAudio ?: false
                 val hasVideo = meta?.hasVideo ?: false
@@ -195,7 +199,7 @@ class LayerStripeSolution(
                     val timeStartIndex = floor(tStart / dt).toLong()
                     val timeEndIndex = ceil(getTimeAt(ix1) / dt).toLong()
 
-                    DrawRectangles.startBatch()
+                    val b = DrawRectangles.startBatch()
                     for (timeIndex in timeStartIndex until timeEndIndex) {
 
                         val t0 = timeIndex * dt
@@ -233,7 +237,7 @@ class LayerStripeSolution(
                             }
                         }
                     }
-                    DrawRectangles.finishBatch()
+                    DrawRectangles.finishBatch(b)
                 }
 
                 val hasError = tr?.lastWarning != null
@@ -274,7 +278,7 @@ class LayerStripeSolution(
         x0: Int, x1: Int, y: Int, h: Int,
         c0: Int, c1: Int,
         frameOffset: Int, frameWidth: Int,
-        video: Video, meta: FFMPEGMetadata,
+        video: Video, meta: MediaMetadata,
         fract0: Float, fract1: Float
     ) {
         val f0 = fract0 * (1f + relativeVideoBorder) - relativeVideoBorder * 0.5f
@@ -301,7 +305,7 @@ class LayerStripeSolution(
         }
         val size = DefaultConfig["debug.ui.layerView.showFrameStatus", if (Build.isDebug) 4 else 0]
         if (size > 0) {
-            VideoCache.drawLoadingStatus(x0, y + h - size, x1, y + h, video.file, 0.0, video.blankFrameThreshold, { x ->
+            drawLoadingStatus(x0, y + h - size, x1, y + h, video.file, 0.0, video.blankFrameThreshold, { x ->
                 val timeAtX = getTimeAt(x)
                 clampTime(video.getLocalTimeFromRoot(timeAtX, false), video)
             })
@@ -313,7 +317,7 @@ class LayerStripeSolution(
         x0: Int, x1: Int, y: Int, h: Int,
         c0: Int, c1: Int,
         frameOffset: Int, frameWidth: Int,
-        video: Video, meta: FFMPEGMetadata,
+        video: Video, meta: MediaMetadata,
         fract0: Float, fract1: Float
     ) {
         val f0 = fract0 * (1f + relativeVideoBorder) - relativeVideoBorder * 0.5f

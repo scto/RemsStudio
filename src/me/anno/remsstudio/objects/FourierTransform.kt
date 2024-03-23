@@ -1,12 +1,12 @@
 package me.anno.remsstudio.objects
 
 import me.anno.animation.LoopingState
-import me.anno.animation.Type
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX.isFinalRendering
 import me.anno.gpu.drawing.GFXx2D.getSize
 import me.anno.gpu.drawing.GFXx2D.getSizeX
 import me.anno.gpu.drawing.GFXx2D.getSizeY
-import me.anno.io.ISaveable
+import me.anno.io.MediaMetadata
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
@@ -21,13 +21,12 @@ import me.anno.remsstudio.audio.AudioFXCache2.getIndex
 import me.anno.remsstudio.audio.AudioFXCache2.getTime
 import me.anno.remsstudio.audio.effects.Domain
 import me.anno.remsstudio.audio.effects.Time
-import me.anno.studio.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
+import me.anno.ui.input.NumberType
 import me.anno.utils.files.LocalFile.toGlobalFile
 import me.anno.video.MissingFrameException
-import me.anno.video.ffmpeg.FFMPEGMetadata
 import org.joml.Matrix4f
 import org.joml.Matrix4fArrayList
 import org.joml.Vector3f
@@ -44,8 +43,8 @@ import kotlin.math.sqrt
 
 class FourierTransform : Transform() {
 
-    val meta get() = FFMPEGMetadata.getMeta(file, true)
-    val forcedMeta get() = FFMPEGMetadata.getMeta(file, false)
+    val meta get() = MediaMetadata.getMeta(file, true)
+    val forcedMeta get() = MediaMetadata.getMeta(file, false)
 
     // effect properties; default is logarithmic x scale
     val rotLin = AnimatedProperty.rotYXZ()
@@ -232,11 +231,11 @@ class FourierTransform : Transform() {
     }
 
     fun getBuffer(
-        meta: FFMPEGMetadata,
+        meta: MediaMetadata,
         getTime: (Int) -> Time
     ): Pair<FloatArray, FloatArray>? {
         val data = AudioFXCache2.getBuffer0(meta, getKey(getTime), false)
-        if (isFinalRendering && data == null) throw MissingFrameException(file)
+        if (isFinalRendering && data == null) throw MissingFrameException(file.absolutePath)
         if (data == null) return null
         return data.getBuffersOfDomain(Domain.FREQUENCY_DOMAIN)
     }
@@ -248,16 +247,17 @@ class FourierTransform : Transform() {
         getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val t = inspected.filterIsInstance<Transform>()
-        val c = t.filterIsInstance<FourierTransform>()
+        val c = inspected.filterIsInstance<FourierTransform>()
         val fourier = getGroup("Fourier Transform", "", "fourier")
-        list.addChild(vi(inspected, "Audio File", "", null, file, style) { for (x in c) x.file = it })
+        list.addChild(vi(
+            inspected, "Audio File", "", null, file, style
+        ) { it, _ -> for (x in c) x.file = it })
         fourier.addChild(
             vi(
                 inspected, "Sample Rate", "What the highest frequency should be",
                 // higher frequencies are eliminated, because we interpolate samples (I think...)
                 sampleRateType, sampleRate, style
-            ) { for (x in c) x.sampleRate = max(64, it) })
+            ) { it, _ -> for (x in c) x.sampleRate = max(64, it) })
         fourier.addChild(
             vi(
                 inspected, "Buffer Size",
@@ -265,25 +265,25 @@ class FourierTransform : Transform() {
                 bufferSizeType,
                 bufferSize,
                 style
-            ) { for (x in c) x.bufferSize = max(64, it) })
+            ) { it, _ -> for (x in c) x.bufferSize = max(64, it) })
         fourier.addChild(
             vi(
                 inspected, "Buffer Min", "Use only a part of the fourier transform; -1 = disabled",
                 null, minBufferIndex, style
-            ) { for (x in c) x.minBufferIndex = it })
+            ) { it, _ -> for (x in c) x.minBufferIndex = it })
         fourier.addChild(
             vi(
                 inspected, "Buffer Max", "Use only a part of the fourier transform; -1 = disabled",
                 null, maxBufferIndex, style
-            ) { for (x in c) x.maxBufferIndex = it })
+            ) { it, _ -> for (x in c) x.maxBufferIndex = it })
         val amplitude = getGroup("Amplitude", "", "amplitude")
-        amplitude.addChild(vis(t, "Position, Linear", "", t.map2<FourierTransform> { it.posLin }, style))
-        amplitude.addChild(vis(t, "Position, Logarithmic", "", t.map2<FourierTransform> { it.posLog }, style))
-        amplitude.addChild(vis(t, "Rotation, Linear", "", t.map2<FourierTransform> { it.rotLin }, style))
-        amplitude.addChild(vis(t, "Rotation, Logarithmic", "", t.map2<FourierTransform> { it.rotLog }, style))
-        amplitude.addChild(vis(t, "Scale, Offset", "", t.map2<FourierTransform> { it.scaOff }, style))
-        amplitude.addChild(vis(t, "Scale, Linear", "", t.map2<FourierTransform> { it.scaLin }, style))
-        amplitude.addChild(vis(t, "Scale, Logarithmic", "", t.map2<FourierTransform> { it.scaLog }, style))
+        amplitude.addChild(vis(c, "Position, Linear", "", c.map { it.posLin }, style))
+        amplitude.addChild(vis(c, "Position, Logarithmic", "", c.map { it.posLog }, style))
+        amplitude.addChild(vis(c, "Rotation, Linear", "", c.map { it.rotLin }, style))
+        amplitude.addChild(vis(c, "Rotation, Logarithmic", "", c.map { it.rotLog }, style))
+        amplitude.addChild(vis(c, "Scale, Offset", "", c.map { it.scaOff }, style))
+        amplitude.addChild(vis(c, "Scale, Linear", "", c.map { it.scaLin }, style))
+        amplitude.addChild(vis(c, "Scale, Logarithmic", "", c.map { it.scaLog }, style))
     }
 
     override fun drawChildrenAutomatically(): Boolean = false
@@ -304,7 +304,7 @@ class FourierTransform : Transform() {
         writer.writeObject(this, "scaLog", scaLog)
     }
 
-    override fun readObject(name: String, value: ISaveable?) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
             "posLin" -> posLin.copyFrom(value)
             "posLog" -> posLog.copyFrom(value)
@@ -313,31 +313,12 @@ class FourierTransform : Transform() {
             "scaOff" -> scaOff.copyFrom(value)
             "scaLin" -> scaLin.copyFrom(value)
             "scaLog" -> scaLog.copyFrom(value)
-            else -> super.readObject(name, value)
-        }
-    }
-
-    override fun readString(name: String, value: String?) {
-        when (name) {
-            "file" -> file = value?.toGlobalFile() ?: InvalidRef
-            else -> super.readString(name, value)
-        }
-    }
-
-    override fun readFile(name: String, value: FileReference) {
-        when (name) {
-            "file" -> file = value
-            else -> super.readFile(name, value)
-        }
-    }
-
-    override fun readInt(name: String, value: Int) {
-        when (name) {
-            "sampleRate" -> sampleRate = max(64, value)
-            "bufferSize" -> bufferSize = max(64, value)
-            "minBufferIndex" -> minBufferIndex = value
-            "maxBufferIndex" -> maxBufferIndex = value
-            else -> super.readInt(name, value)
+            "file" -> file = (value as? String)?.toGlobalFile() ?: (value as? FileReference) ?: InvalidRef
+            "sampleRate" -> sampleRate = max(64, value as? Int ?: return)
+            "bufferSize" -> bufferSize = max(64, value as? Int ?: return)
+            "minBufferIndex" -> minBufferIndex = value as? Int ?: return
+            "maxBufferIndex" -> maxBufferIndex = value as? Int ?: return
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -346,9 +327,8 @@ class FourierTransform : Transform() {
 
     companion object {
         val sampleRateType =
-            Type(24000, 1, 1024f, false, true, { clamp(it.toString().toDouble().toInt(), 64, 96000) }, { it })
+            NumberType(24000, 1, 1024f, false, true, { clamp(it.toString().toDouble().toInt(), 64, 96000) }, { it })
         val bufferSizeType =
-            Type(512, 1, 512f, false, true, { clamp(it.toString().toDouble().toInt(), 64, 65536) }, { it })
+            NumberType(512, 1, 512f, false, true, { clamp(it.toString().toDouble().toInt(), 64, 65536) }, { it })
     }
-
 }

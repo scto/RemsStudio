@@ -1,20 +1,24 @@
 package me.anno.remsstudio.ui.input
 
-import me.anno.animation.Type
-import me.anno.io.text.TextReader
+import me.anno.engine.EngineBase.Companion.workspace
+import me.anno.input.Key
+import me.anno.io.json.saveable.JsonStringReader
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.Selection
 import me.anno.remsstudio.animation.AnimatedProperty
-import me.anno.studio.StudioBase
-import me.anno.studio.StudioBase.Companion.workspace
+import me.anno.ui.Style
 import me.anno.ui.input.FloatVectorInput
-import me.anno.ui.style.Style
-import org.joml.*
+import me.anno.ui.input.NumberType
+import org.apache.logging.log4j.LogManager
+import org.joml.Quaternionf
+import org.joml.Vector2f
+import org.joml.Vector3f
+import org.joml.Vector4f
 
 class FloatVectorInputV2(
     title: String,
     visibilityKey: String,
-    type: Type,
+    type: NumberType,
     private val owningProperty: AnimatedProperty<*>,
     style: Style
 ) : FloatVectorInput(
@@ -22,8 +26,12 @@ class FloatVectorInputV2(
     { FloatInputV2(style, "", visibilityKey, type, owningProperty) }
 ) {
 
-    constructor(title: String, property: AnimatedProperty<*>, time: Double, style: Style) :
-            this(title, title, property.type, property, style) {
+    companion object {
+        private val LOGGER = LogManager.getLogger(FloatVectorInputV2::class)
+    }
+
+    constructor(title: String, visibilityKey: String, property: AnimatedProperty<*>, time: Double, style: Style) :
+            this(title, visibilityKey, property.type, property, style) {
         when (val value = property[time]) {
             is Vector2f -> setValue(value, false)
             is Vector3f -> setValue(value, false)
@@ -31,34 +39,6 @@ class FloatVectorInputV2(
             is Quaternionf -> setValue(value, false)
             else -> throw RuntimeException("Type $value not yet supported!")
         }
-    }
-
-    constructor(
-        title: String, visibilityKey: String, value: Vector2f, type: Type,
-        owningProperty: AnimatedProperty<*>, style: Style
-    ) : this(title, visibilityKey, type, owningProperty, style) {
-        setValue(value, false)
-    }
-
-    constructor(
-        title: String, visibilityKey: String, value: Vector2d, type: Type,
-        owningProperty: AnimatedProperty<*>, style: Style
-    ) : this(title, visibilityKey, type, owningProperty, style) {
-        setValue(value, false)
-    }
-
-    constructor(
-        title: String, visibilityKey: String, value: Vector3d, type: Type,
-        owningProperty: AnimatedProperty<*>, style: Style
-    ) : this(title, visibilityKey, type, owningProperty, style) {
-        setValue(value, false)
-    }
-
-    constructor(
-        title: String, visibilityKey: String, value: Vector4d, type: Type,
-        owningProperty: AnimatedProperty<*>, style: Style
-    ) : this(title, visibilityKey, type, owningProperty, style) {
-        setValue(value, false)
     }
 
     override fun onPaste(x: Float, y: Float, data: String, type: String) {
@@ -83,7 +63,7 @@ class FloatVectorInputV2(
     private fun pasteAnimated(data: String): Unit? {
         return try {
             val editorTime = RemsStudio.editorTime
-            val animProperty = TextReader.read(data, workspace, true)
+            val animProperty = JsonStringReader.read(data, workspace, true)
                 .firstOrNull() as? AnimatedProperty<*>
             if (animProperty != null) {
                 owningProperty.copyFrom(animProperty)
@@ -92,7 +72,7 @@ class FloatVectorInputV2(
                     is Vector3f -> setValue(value, true)
                     is Vector4f -> setValue(value, true)
                     is Quaternionf -> setValue(value, true)
-                    else -> StudioBase.warn("Unknown pasted data type $value")
+                    else -> LOGGER.warn("Unknown pasted data type $value")
                 }
             }
             Unit
@@ -111,5 +91,15 @@ class FloatVectorInputV2(
         copyInto(clone)
         return clone
     }
+
+    override fun onKeyTyped(x: Float, y: Float, key: Key) {
+        if (key == Key.KEY_ENTER || key == Key.KEY_KP_ENTER) return
+        super.onKeyTyped(x, y, key)
+    }
+
+    override fun onEnterKey(x: Float, y: Float) {}
+
+    override val className: String
+        get() = "FloatVectorInputV2"
 
 }

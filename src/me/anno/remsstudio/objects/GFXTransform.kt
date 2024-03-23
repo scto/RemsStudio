@@ -1,20 +1,18 @@
 package me.anno.remsstudio.objects
 
-import me.anno.gpu.drawing.GFXx3D.uploadAttractors0
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.shader.Shader
-import me.anno.gpu.shader.ShaderLib.colorForceFieldBuffer
-import me.anno.gpu.shader.ShaderLib.maxColorForceFields
-import me.anno.gpu.shader.ShaderLib.uvForceFieldBuffer
-import me.anno.io.ISaveable
 import me.anno.io.base.BaseWriter
 import me.anno.remsstudio.animation.AnimatedProperty
+import me.anno.remsstudio.gpu.ShaderLibV2.colorForceFieldBuffer
+import me.anno.remsstudio.gpu.ShaderLibV2.maxColorForceFields
+import me.anno.remsstudio.gpu.ShaderLibV2.uvForceFieldBuffer
 import me.anno.remsstudio.objects.attractors.EffectColoring
 import me.anno.remsstudio.objects.attractors.EffectMorphing
-import me.anno.studio.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
-import me.anno.utils.types.Floats.put3
+import me.anno.utils.structures.lists.Lists.none2
 import org.joml.Vector3f
 import org.joml.Vector4f
 import kotlin.math.abs
@@ -36,10 +34,10 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
         writer.writeObject(this, "attractorBaseColor", attractorBaseColor)
     }
 
-    override fun readObject(name: String, value: ISaveable?) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
             "attractorBaseColor" -> attractorBaseColor.copyFrom(value)
-            else -> super.readObject(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -62,14 +60,12 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
         return pos
     }
 
-    fun uploadAttractors(shader: Shader, time: Double) {
-
-        uploadUVAttractors(shader, time)
+    fun uploadAttractors(shader: Shader, time: Double, is3D: Boolean) {
+        uploadUVAttractors(shader, time, is3D)
         uploadColorAttractors(shader, time)
-
     }
 
-    fun uploadUVAttractors(shader: Shader, time: Double) {
+    fun uploadUVAttractors(shader: Shader, time: Double, is3D: Boolean) {
 
         // has no ability to display them
         if (shader["forceFieldUVCount"] < 0) return
@@ -79,57 +75,70 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
             return
         }
 
-        var attractors = children
+        var morphings = children
             .filterIsInstance<EffectMorphing>()
 
-        for (index in attractors.indices) {
-            val attr = attractors[index]
+        for (index in morphings.indices) {
+            val attr = morphings[index]
             attr.lastLocalTime = attr.getLocalTime(time)
-            attr.lastInfluence = attr.influence[attr.lastLocalTime]
+            attr.lastInfluence = attr.zooming[attr.lastLocalTime]
         }
 
-        attractors = attractors.filter {
+        morphings = morphings.filter {
             it.lastInfluence != 0f
         }
 
-        if (attractors.size > maxColorForceFields)
-            attractors = attractors
+        if (morphings.size > maxColorForceFields)
+            morphings = morphings
                 .sortedByDescending { it.lastInfluence }
                 .subList(0, maxColorForceFields)
 
-        shader.v1i("forceFieldUVCount", attractors.size)
-        if (attractors.isNotEmpty()) {
-            val loc1 = shader["forceFieldUVs"]
+        shader.v1i("forceFieldUVCount", morphings.size)
+        if (morphings.isNotEmpty()) {
             val buffer = uvForceFieldBuffer
+            val loc1 = shader["forceFieldUVs"]
             if (loc1 > -1) {
-                buffer.position(0)
-                for (attractor in attractors) {
-                    val localTime = attractor.lastLocalTime
-                    val position = transformLocally(attractor.position[localTime], time)
-                    buffer.put(position.x * 0.5f + 0.5f)
-                    buffer.put(position.y * 0.5f + 0.5f)
-                    buffer.put(position.z)
+                var bi = 0
+                for (morphing in morphings) {
+                    val localTime = morphing.lastLocalTime
+                    val position = transformLocally(morphing.position[localTime], time)
+                    buffer[bi++] = (position.x * 0.5f + 0.5f)
+                    buffer[bi++] = (position.y * 0.5f + 0.5f)
+                    if (is3D) {
+                        buffer[bi++] = (position.z)
+                        buffer[bi++] = (0f)
+                    } else {
+                        buffer[bi++] = (morphing.swirlStrength[localTime])
+                        buffer[bi++] = (1f / morphing.swirlPower[localTime])
+                    }
                 }
-                buffer.position(0)
-                shader.v3fs(loc1, buffer)
+                shader.v4fs(loc1, buffer)
             }
-            val loc2 = shader["forceFieldUVSpecs"]
+            val loc2 = shader["forceFieldUVData0"]
             if (loc2 > -1) {
-                buffer.position(0)
+                var bi = 0
                 val sx = if (this is Video) 1f / lastW else 1f
                 val sy = if (this is Video) 1f / lastH else 1f
-                for (attractor in attractors) {
-                    val localTime = attractor.lastLocalTime
-                    val weight = attractor.lastInfluence
-                    val sharpness = attractor.sharpness[localTime]
-                    val scale = attractor.scale[localTime]
-                    buffer.put(sqrt(sy / sx) * weight * scale.z / scale.x)
-                    buffer.put(sqrt(sx / sy) * weight * scale.z / scale.y)
-                    buffer.put(10f / (scale.z * weight * weight))
-                    buffer.put(sharpness)
+                for (morphing in morphings) {
+                    val localTime = morphing.lastLocalTime
+                    val weight = morphing.lastInfluence
+                    val sharpness = morphing.sharpness[localTime]
+                    val scale = morphing.scale[localTime]
+                    buffer[bi++] = (sqrt(sy / sx) * weight * scale.z / scale.x)
+                    buffer[bi++] = (sqrt(sx / sy) * weight * scale.z / scale.y)
+                    buffer[bi++] = (10f / (scale.z * weight * weight))
+                    buffer[bi++] = (sharpness)
                 }
-                buffer.position(0)
                 shader.v4fs(loc2, buffer)
+            }
+            val loc3 = shader["forceFieldUVData1"]
+            if (loc3 > -1) {
+                for (bi in morphings.indices) {
+                    val morphing = morphings[bi]
+                    val localTime = morphing.lastLocalTime
+                    buffer[bi] = (morphing.chromatic[localTime])
+                }
+                shader.v1fs(loc3, buffer)
             }
         }
 
@@ -140,7 +149,7 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
         // has no ability to display them
         if (shader["forceFieldColorCount"] < 0) return
 
-        if (children.none { it is EffectColoring }) {
+        if (children.none2 { it is EffectColoring }) {
             shader.v1i("forceFieldColorCount", 0)
             return
         }
@@ -148,9 +157,9 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
         var attractors = children
             .filterIsInstance<EffectColoring>()
 
-        attractors.forEach {
-            it.lastLocalTime = it.getLocalTime(time)
-            it.lastInfluence = it.influence[it.lastLocalTime]
+        for (attractor in attractors) {
+            attractor.lastLocalTime = attractor.getLocalTime(time)
+            attractor.lastInfluence = attractor.influence[attractor.lastLocalTime]
         }
 
         if (attractors.size > maxColorForceFields)
@@ -179,8 +188,7 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
                 val localTime = attractor.lastLocalTime
                 val position = transformLocally(attractor.position[localTime], time)
                 val weight = attractor.lastInfluence
-                buffer.put3(position)
-                buffer.put(weight)
+                buffer.put(position.x).put(position.y).put(position.z).put(weight)
             }
             buffer.position(0)
             shader.v4fs("forceFieldPositionsNWeights", buffer)
@@ -203,9 +211,13 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
     }
 
     companion object {
-        fun uploadAttractors(transform: GFXTransform?, shader: Shader, time: Double) {
-            transform?.uploadAttractors(shader, time) ?: uploadAttractors0(shader)
+        fun uploadAttractors(transform: GFXTransform?, shader: Shader, time: Double, is3D: Boolean) {
+            transform?.uploadAttractors(shader, time, is3D) ?: uploadAttractors0(shader)
+        }
+
+        fun uploadAttractors0(shader: Shader) {
+            shader.v1i("forceFieldUVCount", 0)
+            shader.v1i("forceFieldUVCount", 0)
         }
     }
-
 }

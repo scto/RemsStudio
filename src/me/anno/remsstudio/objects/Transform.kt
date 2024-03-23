@@ -1,22 +1,22 @@
 package me.anno.remsstudio.objects
 
-import me.anno.animation.Type
 import me.anno.config.DefaultConfig
-import me.anno.gpu.GFX
+import me.anno.engine.EngineBase.Companion.workspace
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX.isFinalRendering
 import me.anno.gpu.GFXState
 import me.anno.gpu.blending.BlendMode
-import me.anno.gpu.drawing.GFXx3D.draw3DCircle
-import me.anno.gpu.shader.Renderer
-import me.anno.io.ISaveable
+import me.anno.gpu.drawing.GFXx3D
+import me.anno.gpu.shader.renderer.Renderer
 import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.io.base.InvalidFormatException
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
-import me.anno.io.text.TextReader
-import me.anno.io.text.TextWriter
+import me.anno.io.json.saveable.JsonStringReader
+import me.anno.io.json.saveable.JsonStringWriter
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.max
 import me.anno.remsstudio.RemsStudio
@@ -27,19 +27,20 @@ import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.modes.TransformVisibility
 import me.anno.remsstudio.objects.particles.ParticleSystem
 import me.anno.remsstudio.ui.ComponentUIV2
+import me.anno.remsstudio.ui.IsAnimatedWrapper
 import me.anno.remsstudio.ui.editor.TimelinePanel
 import me.anno.remsstudio.ui.editor.TimelinePanel.Companion.global2Kf
-import me.anno.studio.Inspectable
-import me.anno.studio.StudioBase.Companion.workspace
 import me.anno.ui.Panel
+import me.anno.ui.Style
+import me.anno.ui.base.components.AxisAlignment
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.base.text.LinkPanel
 import me.anno.ui.base.text.UpdatingTextPanel
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.editor.stacked.Option
+import me.anno.ui.input.NumberType
 import me.anno.ui.input.TextInput
 import me.anno.ui.input.TextInputML
-import me.anno.ui.style.Style
 import me.anno.utils.Color.mulARGB
 import me.anno.utils.structures.Hierarchical
 import me.anno.utils.structures.ValueWithDefault
@@ -48,7 +49,6 @@ import me.anno.utils.structures.ValueWithDefaultFunc
 import me.anno.utils.types.Casting.castToDouble
 import me.anno.utils.types.Casting.castToDouble2
 import me.anno.utils.types.Floats.toRadians
-import me.anno.utils.types.Matrices.skew
 import me.anno.utils.types.Strings.isBlank2
 import me.anno.video.MissingFrameException
 import org.apache.logging.log4j.LogManager
@@ -93,8 +93,8 @@ open class Transform() : Saveable(),
     var rotationYXZ = AnimatedProperty.rotYXZ()
 
     var skew = AnimatedProperty.skew()
-    var alignWithCamera = AnimatedProperty.float01()
-    var color = AnimatedProperty.color()
+    var alignWithCamera = AnimatedProperty.float01(0f)
+    var color = AnimatedProperty.color(Vector4f(1f))
     var colorMultiplier = AnimatedProperty.floatPlus(1f)
 
     val fadeIn = AnimatedProperty.floatPlus(0.1f)
@@ -108,7 +108,7 @@ open class Transform() : Saveable(),
     var timeOffset = ValueWithDefault(0.0)
     var timeDilation = ValueWithDefault(1.0)
 
-    var timeAnimated = AnimatedProperty.double()
+    var timeAnimated = AnimatedProperty.double(0.0)
 
     // update this value before drawing everything
     override var indexInParent = 0
@@ -132,7 +132,7 @@ open class Transform() : Saveable(),
     // todo display warnings, if applicable
     var lastWarning: String? = null
 
-    open fun getDocumentationURL(): URL? = null
+    open fun getDocumentationURL(): String? = null
 
     open fun isVisible(localTime: Double) = true
 
@@ -178,10 +178,10 @@ open class Transform() : Saveable(),
         val time = global2Kf(editorTime)
         if (updateHistory) {
             RemsStudio.incrementalChange("Change Keyframe Value") {
-                list.addKeyframe(time, value, TimelinePanel.propertyDt)
+                list.addKeyframe(time, value, TimelinePanel.keyframeSnappingDt)
             }
         } else {
-            list.addKeyframe(time, value, TimelinePanel.propertyDt)
+            list.addKeyframe(time, value, TimelinePanel.keyframeSnappingDt)
         }
     }
 
@@ -233,9 +233,11 @@ open class Transform() : Saveable(),
         list += TextInput("Name ($className)", "", name, style)
             .addChangeListener { for (x in c) name = it.ifEmpty { "-" } }
             .setIsSelectedListener { show(c, null) }
+            .apply { alignmentX = AxisAlignment.FILL }
         list += TextInputML("Comment", comment, style)
             .addChangeListener { for (x in c) comment = it }
             .setIsSelectedListener { show(c, null) }
+            .apply { alignmentX = AxisAlignment.FILL }
 
         val warningPanel = UpdatingTextPanel(500, style) { lastWarning }
         warningPanel.textColor = warningPanel.textColor.mulARGB(0xffff3333.toInt())
@@ -283,27 +285,20 @@ open class Transform() : Saveable(),
             style
         )
 
-        val ufd = usesFadingDifferently()
-        if (ufd || getStartTime().isFinite()) colorGroup += vis(
-            c, "Fade In", "Transparency at the start", c.map { it.fadeIn },
-            style
-        )
-        if (ufd || getEndTime().isFinite()) colorGroup += vis(
-            c, "Fade Out", "Transparency at the end", c.map { it.fadeOut },
-            style
-        )
-
         // kind of color...
-        colorGroup += vi(inspected, "Blend Mode", "", null, blendMode, style) { for (x in c) x.blendMode = it }
+        colorGroup += vi(
+            inspected, "Blend Mode", "How this' element color is combined with what was rendered before that.",
+            null, blendMode, style
+        ) { it, _ -> for (x in c) x.blendMode = it }
 
         // time
         val timeGroup = getGroup("Time", "", "time")
         timeGroup += vis(
-            inspected, "Start Time", "Delay the animation", "", null,
+            inspected, "Start Time", "Delay the animation", null,
             c.map { it.timeOffset }, style
         )
         timeGroup += vis(
-            inspected, "Time Multiplier", "Speed up the animation", "",
+            inspected, "Time Multiplier", "Speed up the animation",
             dilationType, c.map { it.timeDilation }, style
         )
         timeGroup += vis(
@@ -311,18 +306,27 @@ open class Transform() : Saveable(),
             style
         )
 
+        val ufd = usesFadingDifferently()
+        if (ufd || getStartTime().isFinite()) {
+            timeGroup += vis(c, "Fade In", "Transparency at the start, in seconds", c.map { it.fadeIn }, style)
+            timeGroup += vis(c, "Fade Out", "Transparency at the end, in seconds", c.map { it.fadeOut }, style)
+        }
+
         val editorGroup = getGroup("Editor", "", "editor")
         editorGroup += vi(
-            inspected, "Timeline Slot", "< 1 means invisible", Type.INT_PLUS, timelineSlot.value, style
-        ) { for (x in c) x.timelineSlot.value = it }
+            inspected, "Timeline Slot", "< 1 means invisible", NumberType.INT_PLUS, timelineSlot.value, style
+        ) { it, _ -> for (x in c) x.timelineSlot.value = it }
         // todo warn of invisible elements somehow!...
         editorGroup += vi(
             inspected, "Visibility", "", null, visibility, style
-        ) { for (x in c) x.visibility = it }
+        ) { it, _ -> for (x in c) x.visibility = it }
 
         if (parent?.acceptsWeight() == true) {
             val psGroup = getGroup("Particle System Child", "", "particles")
-            psGroup += vi(inspected, "Weight", "For particle systems", Type.FLOAT_PLUS, weight, style) {
+            psGroup += vi(
+                inspected, "Weight", "For particle systems",
+                NumberType.FLOAT_PLUS, weight, style
+            ) { it, _ ->
                 for (x in c) {
                     x.weight = it
                     (x.parent as? ParticleSystem)?.apply {
@@ -441,33 +445,27 @@ open class Transform() : Saveable(),
      * stack with camera already included
      * */
     fun draw(stack: Matrix4fArrayList, parentTime: Double, parentColor: Vector4f) {
-
         val time = getLocalTime(parentTime)
         val color = getLocalColor(parentColor, time, tmp0)
-
         draw(stack, time, parentColor, color)
-
     }
 
     fun draw(stack: Matrix4fArrayList, time: Double, parentColor: Vector4f, color: Vector4f) {
-
         if (color.w > minAlpha && visibility.isVisible) {
             applyTransformLT(stack, time)
             drawDirectly(stack, time, parentColor, color)
         }
-
     }
 
     fun drawDirectly(stack: Matrix4fArrayList, time: Double, parentColor: Vector4f, color: Vector4f) {
 
-        GFX.drawnId = clickId
         val doBlending = when (GFXState.currentRenderer) {
             Renderer.colorRenderer, Renderer.colorSqRenderer -> true
             else -> false
         }
 
         if (doBlending) {
-            GFXState.blendMode.use(blendMode) {
+            GFXState.blendMode.use(if (blendMode == NO_BLENDING) null else blendMode) {
                 onDraw(stack, time, color)
                 drawChildren(stack, time, color, parentColor)
             }
@@ -537,64 +535,33 @@ open class Transform() : Saveable(),
         writer.writeInt("visibility", visibility.id, false)
     }
 
-    override fun readBoolean(name: String, value: Boolean) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "collapsed" -> isCollapsed = value
-            else -> super.readBoolean(name, value)
-        }
-    }
-
-    override fun readInt(name: String, value: Int) {
-        when (name) {
-            "timelineSlot" -> timelineSlot.value = value
-            "visibility" -> visibility = TransformVisibility[value]
-            else -> super.readInt(name, value)
-        }
-    }
-
-    override fun readLong(name: String, value: Long) {
-        when (name) {
+            "collapsed" -> isCollapsed = value == true
+            "timelineSlot" -> timelineSlot.value = value as? Int ?: return
+            "visibility" -> visibility = TransformVisibility[value as? Int ?: return]
             "uuid" -> Unit// hide the warning
-            else -> super.readLong(name, value)
-        }
-    }
-
-    override fun readFloat(name: String, value: Float) {
-        when (name) {
-            "weight" -> weight = value
-            else -> super.readFloat(name, value)
-        }
-    }
-
-    override fun readDouble(name: String, value: Double) {
-        when (name) {
-            "timeDilation" -> timeDilation.value = value
-            "timeOffset" -> timeOffset.value = value
-            "fadeIn" -> if (value >= 0.0) fadeIn.set(value.toFloat())
-            "fadeOut" -> if (value >= 0.0) fadeOut.set(value.toFloat())
-            else -> super.readDouble(name, value)
-        }
-    }
-
-    override fun readString(name: String, value: String?) {
-        when (name) {
-            "name" -> this.name = value ?: ""
-            "comment" -> comment = value ?: ""
-            "tags" -> tags = value ?: ""
-            "blendMode" -> blendMode = BlendMode[value ?: ""]
-            else -> super.readString(name, value)
-        }
-    }
-
-    override fun readObjectArray(name: String, values: Array<ISaveable?>) {
-        when (name) {
-            "children" -> values.filterIsInstance<Transform>().forEach(::addChild)
-            else -> super.readObjectArray(name, values)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+            "weight" -> weight = value as? Float ?: return
+            "timeDilation" -> timeDilation.value = value as? Double ?: return
+            "timeOffset" -> timeOffset.value = value as? Double ?: return
+            "fadeIn" -> {
+                if (value is Double && value >= 0.0) fadeIn.set(value.toFloat())
+                else fadeIn.copyFrom(value)
+            }
+            "fadeOut" -> {
+                if (value is Double && value >= 0.0) fadeOut.set(value.toFloat())
+                else fadeOut.copyFrom(value)
+            }
+            "name" -> this.name = value as? String ?: ""
+            "comment" -> comment = value as? String ?: ""
+            "tags" -> tags = value as? String ?: ""
+            "blendMode" -> blendMode = BlendMode[value as? String ?: ""]
+            "children" -> {
+                when (value) {
+                    is Array<*> -> value.filterIsInstance<Transform>().forEach(::addChild)
+                    is Transform -> addChild(value)
+                }
+            }
             "parent" -> {
                 if (value is Transform) {
                     try {
@@ -602,11 +569,6 @@ open class Transform() : Saveable(),
                     } catch (e: RuntimeException) {
                         LOGGER.warn(e.message.toString())
                     }
-                }
-            }
-            "children" -> {
-                if (value is Transform) {
-                    addChild(value)
                 }
             }
             "position" -> position.copyFrom(value)
@@ -617,9 +579,7 @@ open class Transform() : Saveable(),
             "timeAnimated" -> timeAnimated.copyFrom(value)
             "color" -> color.copyFrom(value)
             "colorMultiplier" -> colorMultiplier.copyFrom(value)
-            "fadeIn" -> fadeIn.copyFrom(value)
-            "fadeOut" -> fadeOut.copyFrom(value)
-            else -> super.readObject(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -680,7 +640,7 @@ open class Transform() : Saveable(),
     fun clone() = clone(InvalidRef)
     open fun clone(workspace: FileReference): Transform {
         val asString = try {
-            TextWriter.toText(this, workspace)
+            JsonStringWriter.toText(this, workspace)
         } catch (e: Exception) {
             e.printStackTrace()
             ""
@@ -699,55 +659,75 @@ open class Transform() : Saveable(),
 
     fun <V> vi(
         inspected: List<Inspectable>,
-        title: String, ttt: String, dictPath: String,
-        type: Type?, value: V,
-        style: Style, setValue: (V) -> Unit
+        title: String, ttt: String, dictPath: String, visibilityKey: String,
+        type: NumberType?, value: V,
+        style: Style, setValue: (value: V, mask: Int) -> Unit
     ): Panel {
         return vi(
             inspected,
             Dict[title, "obj.$dictPath"],
             Dict[ttt, "obj.$dictPath.desc"],
-            type,
-            value,
-            style,
-            setValue
+            visibilityKey, type, value, style, setValue
         )
     }
 
     fun <V> vi(
         inspected: List<Inspectable>,
-        title: String, ttt: String, dictPath: String,
-        type: Type?, value: ValueWithDefault<V>,
+        title: String, ttt: String, dictPath: String, visibilityKey: String,
+        type: NumberType?, value: ValueWithDefault<V>,
         style: Style
-    ) = vi(inspected, Dict[title, "obj.$dictPath"], Dict[ttt, "obj.$dictPath.desc"], type, value, style)
+    ) = vi(inspected, Dict[title, "obj.$dictPath"], Dict[ttt, "obj.$dictPath.desc"], visibilityKey, type, value, style)
 
     fun <V> vis(
         inspected: List<Inspectable>,
-        title: String,
-        ttt: String, dictPath: String, type: Type?,
+        title: String, ttt: String, dictPath: String, type: NumberType?, visibilityKey: String,
         values: List<ValueWithDefault<V>>, style: Style
-    ) = vis(inspected, Dict[title, "obj.$dictPath"], Dict[ttt, "obj.$dictPath.desc"], type, values, style)
+    ) = vis(
+        inspected, Dict[title, "obj.$dictPath"], Dict[ttt, "obj.$dictPath.desc"],
+        visibilityKey, type, values, style
+    )
+
+    fun <V> vi(
+        inspected: List<Inspectable>,
+        title: String, ttt: String, visibilityKey: String,
+        type: NumberType?, value: ValueWithDefault<V>,
+        style: Style
+    ): Panel {
+        return vi(inspected, title, ttt, visibilityKey, type, value.value, style) { newValue, mask ->
+            // todo respect mask
+            // todo assign to all???
+            value.value = newValue
+        }
+    }
 
     fun <V> vi(
         inspected: List<Inspectable>,
         title: String, ttt: String,
-        type: Type?, value: ValueWithDefault<V>,
+        type: NumberType?, value: ValueWithDefault<V>,
         style: Style
     ): Panel {
-        return vi(inspected, title, ttt, type, value.value, style) {
-            value.value = it
+        return vi(inspected, title, ttt, title, type, value, style)
+    }
+
+    fun <V> vis(
+        inspected: List<Inspectable>,
+        title: String, ttt: String, visibilityKey: String, type: NumberType?,
+        values: List<ValueWithDefault<V>>, style: Style
+    ): Panel {
+        return vi(inspected, title, ttt, visibilityKey, type, values[0].value, style) { newValue, mask ->
+            // todo respect mask
+            for (x in values) {
+                x.value = newValue
+            }
         }
     }
 
     fun <V> vis(
         inspected: List<Inspectable>,
-        title: String,
-        ttt: String, type: Type?,
+        title: String, ttt: String, type: NumberType?,
         values: List<ValueWithDefault<V>>, style: Style
     ): Panel {
-        return vi(inspected, title, ttt, type, values[0].value, style) {
-            for (x in values) x.value = it
-        }
+        return vis(inspected, title, ttt, title, type, values, style)
     }
 
     /**
@@ -755,32 +735,30 @@ open class Transform() : Saveable(),
      * title, tool tip text, type, start value
      * callback is used to adjust the value
      * */
-    @Suppress("UNCHECKED_CAST") // all casts are checked in all known use-cases ;)
+    fun <V> vi(
+        inspected: List<Inspectable>,
+        title: String, ttt: String, visibilityKey: String,
+        type: NumberType?, value: V,
+        style: Style, setValue: (value: V, mask: Int) -> Unit
+    ): Panel {
+        return ComponentUIV2.vi(inspected, this, title, ttt, visibilityKey, type, value, style, setValue)
+    }
+
     fun <V> vi(
         inspected: List<Inspectable>,
         title: String, ttt: String,
-        type: Type?, value: V,
-        style: Style, setValue: (V) -> Unit
+        type: NumberType?, value: V,
+        style: Style, setValue: (value: V, mask: Int) -> Unit
     ): Panel {
-        return ComponentUIV2.vi(inspected, this, title, ttt, type, value, style, setValue)
-    }
-
-    fun vi(
-        title: String,
-        ttt: String,
-        dictSubPath: String,
-        values: AnimatedProperty<*>,
-        style: Style
-    ): Panel {
-        return vi(Dict[title, "obj.$dictSubPath"], Dict[ttt, "obj.$dictSubPath.desc"], values, style)
+        return ComponentUIV2.vi(inspected, this, title, ttt, title, type, value, style, setValue)
     }
 
     fun vis(
-        inspected: List<Inspectable>,
         selves: List<Transform>,
         title: String,
         ttt: String,
         dictSubPath: String,
+        visibilityKey: String,
         values: List<AnimatedProperty<*>>,
         style: Style
     ): Panel {
@@ -788,9 +766,19 @@ open class Transform() : Saveable(),
             selves,
             Dict[title, "obj.$dictSubPath"],
             Dict[ttt, "obj.$dictSubPath.desc"],
+            visibilityKey,
             values,
             style
         )
+    }
+
+    fun vis(
+        selves: List<Transform>,
+        title: String, ttt: String,
+        values: List<AnimatedProperty<*>>,
+        style: Style
+    ): Panel {
+        return vis(selves, title, ttt, title, values, style)
     }
 
     /**
@@ -798,18 +786,29 @@ open class Transform() : Saveable(),
      * title, tool tip text, type, start value
      * modifies the AnimatedProperty-Object, so no callback is needed
      * */
-    fun vi(title: String, ttt: String, values: AnimatedProperty<*>, style: Style): Panel {
-        return ComponentUIV2.vi(this, title, ttt, values, style)
+    fun vi(
+        title: String,
+        ttt: String,
+        visibilityKey: String,
+        values: AnimatedProperty<*>,
+        style: Style
+    ): IsAnimatedWrapper {
+        return ComponentUIV2.vi(this, title, ttt, visibilityKey, values, style)
+    }
+
+    fun vi(title: String, ttt: String, values: AnimatedProperty<*>, style: Style): IsAnimatedWrapper {
+        return ComponentUIV2.vi(this, title, ttt, title, values, style)
     }
 
     fun vis(
         selves: List<Transform>,
         title: String,
         ttt: String,
-        values: List<AnimatedProperty<*>?>,
+        visibilityKey: String,
+        values: List<AnimatedProperty<*>>,
         style: Style
     ): Panel {
-        return ComponentUIV2.vis(selves, title, ttt, values, style)
+        return ComponentUIV2.vis(selves, title, ttt, visibilityKey, values, style)
     }
 
     override fun onDestroy() {}
@@ -829,6 +828,18 @@ open class Transform() : Saveable(),
             if (parent != null) {
                 yieldAll(parent.listOfInheritance)
             }
+        }
+
+    /**
+     * return from this to root all parents
+     * */
+    val listOfInheritanceReversed: Sequence<Transform>
+        get() = sequence {
+            val parent = parent
+            if (parent != null) {
+                yieldAll(parent.listOfInheritance)
+            }
+            yield(this@Transform)
         }
 
     fun getDepth(): Int {
@@ -879,7 +890,7 @@ open class Transform() : Saveable(),
     }
 
     fun checkFinalRendering() {
-        if (isFinalRendering) throw MissingFrameException(this)
+        if (isFinalRendering) throw MissingFrameException(toString())
     }
 
     open fun getAdditionalChildrenOptions(): List<Option> = emptyList()
@@ -890,24 +901,15 @@ open class Transform() : Saveable(),
 
     companion object {
 
-        inline fun <reified C> List<Transform>.map2(mapper: (C) -> AnimatedProperty<*>): List<AnimatedProperty<*>?> {
-            return map {
-                if (it is C) mapper(it)
-                else null
-            }
-        }
+        val NO_BLENDING = BlendMode(NameDesc("No Blending", "", "gpu.blendMode.none"), "None")
 
         fun drawUICircle(stack: Matrix4fArrayList, scale: Float = 0.02f, inner: Float = 0.7f, color: Vector4f) {
             // draw a small symbol to indicate pivot
             if (!isFinalRendering) {
                 stack.pushMatrix()
-                /*val w = GFX.windowWidth
-                val h = GFX.windowHeight
-                stack.m00(scale*h/w);stack.m01(0f);stack.m02(0f)
-                stack.m10(0f);stack.m11(scale);stack.m12(0f)
-                stack.m20(0f);stack.m21(0f);stack.m22(scale)*/
                 stack.scale(scale)
-                draw3DCircle(stack, inner, 0f, 360f, color)
+                // doesn't need effects
+                GFXx3D.draw3DCircle(stack, inner, 0f, 360f, color)
                 stack.popMatrix()
             }
         }
@@ -915,7 +917,7 @@ open class Transform() : Saveable(),
         val nextClickId = AtomicInteger()
 
         fun String.toTransform() = try {
-            TextReader.readFirstOrNull<Transform>(this, workspace, true)
+            JsonStringReader.readFirstOrNull<Transform>(this, workspace, true)
         } catch (e: InvalidFormatException) {
             null
         }
@@ -923,8 +925,7 @@ open class Transform() : Saveable(),
         const val minAlpha = 0.5f / 255f
         private val LOGGER = LogManager.getLogger(Transform::class)
 
-        val dilationType = Type(1.0, 1, 1f, true, true, ::castToDouble2, ::castToDouble)
+        val dilationType = NumberType(1.0, 1, 1f, true, true, ::castToDouble2, ::castToDouble)
 
     }
-
 }

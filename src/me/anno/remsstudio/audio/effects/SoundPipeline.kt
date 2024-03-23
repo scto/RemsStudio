@@ -1,6 +1,6 @@
 package me.anno.remsstudio.audio.effects
 
-import me.anno.io.ISaveable
+import me.anno.Engine
 import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.remsstudio.RemsStudio
@@ -10,13 +10,13 @@ import me.anno.remsstudio.audio.effects.falloff.SquareFalloff
 import me.anno.remsstudio.audio.effects.impl.*
 import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
-import me.anno.studio.Inspectable
+import me.anno.engine.inspector.Inspectable
 import me.anno.ui.Panel
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.editor.stacked.Option
 import me.anno.ui.editor.stacked.StackPanel
-import me.anno.ui.style.Style
 import org.jtransforms.fft.FloatFFT_1D
 
 class SoundPipeline() : Saveable(), Inspectable {
@@ -49,7 +49,7 @@ class SoundPipeline() : Saveable(), Inspectable {
             style
         ) {
 
-            override fun setValue(newValue: List<Inspectable>, notify: Boolean): Panel {
+            override fun setValue(newValue: List<Inspectable>, mask: Int, notify: Boolean): Panel {
                 if (newValue !== effects) {
                     effects.clear()
                     effects.addAll(newValue.filterIsInstance<SoundEffect>())
@@ -110,14 +110,14 @@ class SoundPipeline() : Saveable(), Inspectable {
         }
     }
 
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+    override fun setProperty(name: String, value: Any?) {
+        when(name){
             "stage" -> {
                 if (value is SoundEffect) {
                     effects.add(value)
                 }
             }
-            else -> super.readObject(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -138,6 +138,12 @@ class SoundPipeline() : Saveable(), Inspectable {
     }
 
     companion object {
+
+        init {
+            Engine.registerForShutdown {
+                pl.edu.icm.jlargearrays.ConcurrencyUtils.shutdownThreadPoolAndAwaitTermination()
+            }
+        }
 
         fun changeDomain(
             src: Domain,

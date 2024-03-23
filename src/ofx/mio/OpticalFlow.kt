@@ -2,26 +2,28 @@ package ofx.mio
 
 import me.anno.gpu.GFX.flat01
 import me.anno.gpu.GFXState.useFrame
-import me.anno.gpu.shader.ShaderLib.createShader
-import me.anno.gpu.shader.ShaderLib.simplestVertexShader
+import me.anno.gpu.framebuffer.DepthBufferType
 import me.anno.gpu.framebuffer.FBStack
-import me.anno.gpu.framebuffer.Frame
-import me.anno.gpu.framebuffer.Framebuffer
+import me.anno.gpu.framebuffer.IFramebuffer
 import me.anno.gpu.shader.GLSLType
-import me.anno.gpu.shader.Renderer
+import me.anno.gpu.shader.ShaderLib.coordsList
+import me.anno.gpu.shader.ShaderLib.coordsUVVertexShader
+import me.anno.gpu.shader.ShaderLib.createShader
+import me.anno.gpu.shader.ShaderLib.uvList
 import me.anno.gpu.shader.builder.Variable
+import me.anno.gpu.shader.renderer.Renderer
 import me.anno.gpu.texture.Clamping
-import me.anno.gpu.texture.GPUFiltering
+import me.anno.gpu.texture.Filtering
 import me.anno.gpu.texture.Texture2D
 
 object OpticalFlow {
 
-    fun run(lambda: Float, blurAmount: Float, displacement: Float, t0: Texture2D, t1: Texture2D): Framebuffer {
+    fun run(lambda: Float, blurAmount: Float, displacement: Float, t0: Texture2D, t1: Texture2D): IFramebuffer {
 
         val w = t0.width
         val h = t0.height
 
-        val flowT = FBStack["flow", w, h, 4, false, 1, false]
+        val flowT = FBStack["flow", w, h, 4, false, 1, DepthBufferType.NONE]
 
         // flow process
 
@@ -31,8 +33,8 @@ object OpticalFlow {
             flow.v2f("scale", 1f, 1f)
             flow.v2f("offset", 1f / w, 1f / h)
             flow.v1f("lambda", lambda)
-            t0.bind(0, GPUFiltering.LINEAR, Clamping.CLAMP)
-            t1.bind(1, GPUFiltering.LINEAR, Clamping.CLAMP)
+            t0.bind(0, Filtering.LINEAR, Clamping.CLAMP)
+            t1.bind(1, Filtering.LINEAR, Clamping.CLAMP)
             flat01.draw(flow)
         }
 
@@ -44,21 +46,21 @@ object OpticalFlow {
         blur.v1f("sigma", blurAmount * 0.5f)
         blur.v2f("texOffset", 2f, 2f)
 
-        val blurH = FBStack["blurH", w, h, 4, false, 1, false]
+        val blurH = FBStack["blurH", w, h, 4, false, 1, DepthBufferType.NONE]
         useFrame(blurH, Renderer.colorRenderer) {
-            flowT.bindTexture0(0, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
+            flowT.bindTexture0(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
             blur.v1f("horizontalPass", 1f)
             flat01.draw(blur)
         }
 
-        val blurV = FBStack["blurV", w, h, 4, false, 1, false]
+        val blurV = FBStack["blurV", w, h, 4, false, 1, DepthBufferType.NONE]
         useFrame(blurV, Renderer.colorRenderer) {
-            blurH.bindTexture0(0, GPUFiltering.LINEAR, Clamping.CLAMP)
+            blurH.bindTexture0(0, Filtering.LINEAR, Clamping.CLAMP)
             blur.v1f("horizontalPass", 0f)
             flat01.draw(blur)
         }
 
-        val result = FBStack["reposition", w, h, 4, false, 1, false]
+        val result = FBStack["reposition", w, h, 4, false, 1, DepthBufferType.NONE]
         useFrame(result, Renderer.colorRenderer) {
 
             // reposition
@@ -66,8 +68,8 @@ object OpticalFlow {
             repos.use()
             repos.v2f("amt", displacement * 0.25f)
 
-            t0.bind(0, GPUFiltering.LINEAR, Clamping.CLAMP)
-            blurV.bindTextures(1, GPUFiltering.LINEAR, Clamping.CLAMP)
+            t0.bind(0, Filtering.LINEAR, Clamping.CLAMP)
+            blurV.bindTextures(1, Filtering.LINEAR, Clamping.CLAMP)
             flat01.draw(repos)
 
         }
@@ -78,11 +80,13 @@ object OpticalFlow {
 
     val flowShader = lazy {
         createShader(
-            "flow", simplestVertexShader,
-            listOf(Variable(GLSLType.V2F, "uv")), "" +
-                    "uniform sampler2D tex0, tex1;\n" +
-                    "uniform vec2 scale, offset;\n" +
-                    "uniform float lambda;\n" +
+            "flow", coordsList, coordsUVVertexShader, uvList, listOf(
+                Variable(GLSLType.S2D, "tex0"),
+                Variable(GLSLType.S2D, "tex1"),
+                Variable(GLSLType.V2F, "scale"),
+                Variable(GLSLType.V2F, "offset"),
+                Variable(GLSLType.V1F, "lambda"),
+            ), "" +
                     "vec4 getColorCoded(float x, float y, vec2 scale) {\n" +
                     "   vec2 xOut = vec2(max(x,0.),max(-x,0.))*scale.x;\n" +
                     "   vec2 yOut = vec2(max(y,0.),max(-y,0.))*scale.y;\n" +
@@ -121,14 +125,14 @@ object OpticalFlow {
 
     val blurShader = lazy {
         createShader(
-            "blur", "" + simplestVertexShader,
-            listOf(Variable(GLSLType.V2F, "uv")), "" +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texOffset;\n" +
-                    "\n" +
-                    "uniform float blurSize;\n" +
-                    "uniform float horizontalPass;// 0 or 1 to indicate vertical or horizontal pass\n" +
-                    "uniform float sigma;// The sigma value for the gaussian function: higher value means more blur\n" +
+            "blur", coordsList, coordsUVVertexShader, uvList, listOf(
+                Variable(GLSLType.S2D, "tex"),
+                Variable(GLSLType.V2F, "texOffset"),
+                Variable(GLSLType.V1F, "blurSize"),
+                Variable(GLSLType.V1F, "horizontalPass"),// 0 or 1 to indicate vertical or horizontal pass
+                // The sigma value for the gaussian function: higher value means more blur
+                Variable(GLSLType.V1F, "sigma"),
+            ), "" +
                     "// A good value for 9x9 is around 3 to 5\n" +
                     "// A good value for 7x7 is around 2.5 to 4\n" +
                     "// A good value for 5x5 is around 2 to 3.5\n" +
@@ -182,10 +186,11 @@ object OpticalFlow {
 
     val repositionShader = lazy {
         createShader(
-            "reposition", "" +
-                    simplestVertexShader, listOf(Variable(GLSLType.V2F, "uv")), "" +
-                    "uniform vec2 amt;\n" +
-                    "uniform sampler2D tex0, tex1;\n" +
+            "reposition", coordsList, coordsUVVertexShader, uvList, listOf(
+                Variable(GLSLType.V2F, "amt"),
+                Variable(GLSLType.S2D, "tex0"),
+                Variable(GLSLType.S2D, "tex1")
+            ), "" +
                     "vec2 get2DOff(sampler2D tex, vec2 coord) {\n" +
                     "   vec4 col = texture(tex, coord);\n" +
                     "   if (col.w > 0.95) col.z = -col.z;\n" +

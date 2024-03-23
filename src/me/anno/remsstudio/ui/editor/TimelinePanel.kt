@@ -5,33 +5,34 @@ import me.anno.config.DefaultStyle
 import me.anno.fonts.FontManager
 import me.anno.fonts.keys.TextCacheKey
 import me.anno.gpu.GFX
+import me.anno.gpu.drawing.DrawRectangles
 import me.anno.gpu.drawing.DrawRectangles.drawRect
 import me.anno.gpu.drawing.DrawTexts.drawSimpleTextCharByChar
-import me.anno.gpu.drawing.GFXx2D.flatColor
 import me.anno.input.Input
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.fract
 import me.anno.maths.Maths.mix
-import me.anno.maths.Maths.mixARGB
 import me.anno.maths.Maths.pow
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.RemsStudio.editorTime
-import me.anno.remsstudio.RemsStudio.isPaused
 import me.anno.remsstudio.RemsStudio.project
 import me.anno.remsstudio.RemsStudio.targetDuration
 import me.anno.remsstudio.RemsStudio.targetFPS
 import me.anno.remsstudio.RemsStudio.updateAudio
 import me.anno.remsstudio.Selection
 import me.anno.remsstudio.objects.Transform
+import me.anno.remsstudio.ui.graphs.GraphEditorBody.Companion.shouldMove
+import me.anno.remsstudio.ui.graphs.GraphEditorBody.Companion.shouldScrub
 import me.anno.ui.Panel
-import me.anno.ui.base.constraints.AxisAlignment
+import me.anno.ui.Style
+import me.anno.ui.base.components.AxisAlignment
 import me.anno.ui.base.menu.Menu.openMenu
 import me.anno.ui.base.menu.MenuOption
 import me.anno.ui.custom.CustomContainer.Companion.isCross
-import me.anno.ui.style.Style
 import me.anno.utils.Color.black
+import me.anno.utils.Color.mixARGB
 import me.anno.utils.Color.mulAlpha
 import me.anno.utils.structures.tuples.Quad
 import me.anno.utils.types.Strings.formatTime
@@ -97,14 +98,12 @@ open class TimelinePanel(style: Style) : Panel(style) {
             lastOwner = Selection.selectedTransforms.firstOrNull() ?: lastOwner
 
             val owner = lastOwner
-            val child2root = owner.listOfInheritance.toList()
-            val root2child = child2root.reversed()
 
             // only simple time transforms are supported
             time0 = 0.0
             time1 = 1.0
 
-            root2child.forEach { t ->
+            for (t in owner.listOfInheritanceReversed) {
                 // localTime0 = (parentTime - timeOffset) * timeDilation
                 val offset = t.timeOffset.value
                 val dilation = t.timeDilation.value
@@ -131,9 +130,16 @@ open class TimelinePanel(style: Style) : Panel(style) {
             // centralTime = max(centralTime, dtHalfLength)
         }
 
-        val movementSpeed get() = 0.05f * sqrt(GFX.someWindow!!.width * GFX.someWindow!!.height.toFloat())
+        val movementSpeed get() = 0.05f * sqrt(GFX.someWindow.width * GFX.someWindow.height.toFloat())
 
-        val propertyDt get() = 10f * dtHalfLength / GFX.someWindow!!.width
+        /**
+         * when changing a property, what should be the dt for snapping
+         * */
+        val keyframeSnappingDt
+            get(): Double {
+                return if (RemsStudio.editorTimeDilation == 0.0) 10f * dtHalfLength / GFX.someWindow.width
+                else 1e-6
+            }
 
         fun moveRight(sign: Float) {
             val delta = sign * dtHalfLength * 0.05f
@@ -177,13 +183,11 @@ open class TimelinePanel(style: Style) : Panel(style) {
         }
     }
 
-    fun normTime01(time: Double) = (time - centralTime) / dtHalfLength * 0.5f + 0.5f
-    fun normTime01(time: Float) = (time - centralTime) / dtHalfLength * 0.5f + 0.5f
+    fun normTime01(time: Double) = (time - centralTime) / dtHalfLength * 0.5 + 0.5
     fun normAxis11(lx: Float, x0: Int, size: Int) = (lx - x0) / size * 2f - 1f
 
     fun getTimeAt(mx: Float) = centralTime + dtHalfLength * normAxis11(mx, x, width)
     fun getXAt(time: Double) = x + width * normTime01(time)
-    fun getXAt(time: Float) = x + width * normTime01(time)
 
     fun drawTimeAxis(x0: Int, y0: Int, x1: Int, y1: Int, drawText: Boolean) {
 
@@ -198,6 +202,8 @@ open class TimelinePanel(style: Style) : Panel(style) {
         val fineLineColor = fontColor and 0x1fffffff
         val veryFineLineColor = fontColor and 0x10ffffff
 
+        val batch = DrawRectangles.startBatch()
+
         // very fine lines, 20x as many
         drawTimeAxis(timeStep * 0.05, x0, y02, x1, y1, veryFineLineColor, false)
 
@@ -210,12 +216,14 @@ open class TimelinePanel(style: Style) : Panel(style) {
         drawLine(targetDuration, y02, y1, endColor)
         drawLine(editorTime, y02, y1, accentColor)
 
+        DrawRectangles.finishBatch(batch)
+
     }
 
     override fun onUpdate() {
         super.onUpdate()
         for (key in drawnStrings) {
-            FontManager.getTexture(key)
+            FontManager.getTexture(key, true)
         }
     }
 
@@ -241,12 +249,11 @@ open class TimelinePanel(style: Style) : Panel(style) {
         // probably because of program switching
         // 8% more are gained by assigning the color only once
         if (lineH > 0) {
-            flatColor(lineColor)
             for (stepIndex in maxStepIndex downTo minStepIndex) {
                 val time = stepIndex * timeStep
                 val x = getXAt(time).roundToInt()
                 if (x > x0 + 1 && x + 2 < x1) {
-                    drawRect(x, lineY, 1, lineH)
+                    drawRect(x, lineY, 1, lineH, lineColor)
                 }
             }
         }
@@ -282,10 +289,10 @@ open class TimelinePanel(style: Style) : Panel(style) {
         return timeFractions.minByOrNull { abs(it - time) }!!.toDouble()
     }
 
-    override fun onMouseClicked(x: Float, y: Float, button: MouseButton, long: Boolean) {
+    override fun onMouseClicked(x: Float, y: Float, button: Key, long: Boolean) {
         when {
             isCross(x, y) -> super.onMouseClicked(x, y, button, long)
-            button.isLeft -> jumpToX(x)
+            button == Key.BUTTON_LEFT -> jumpToX(x)
             else -> {
                 val options = listOf(
                     MenuOption(
@@ -324,31 +331,33 @@ open class TimelinePanel(style: Style) : Panel(style) {
     }
 
     override fun onMouseMoved(x: Float, y: Float, dx: Float, dy: Float) {
-        if (0 in Input.mouseKeysDown) {
-            if ((Input.isShiftDown || Input.isControlDown) && isPaused) {
-                // scrubbing
-                editorTime = getTimeAt(x)
-            } else {
-                // move left/right
-                val dt = dx * dtHalfLength / (width / 2f)
-                centralTime -= dt
-                clampTime()
-            }
+        if (shouldScrub()) {
+            // scrubbing
+            editorTime = getTimeAt(x)
+        } else if (shouldMove()) {
+            // move left/right
+            val dt = dx * dtHalfLength / (width / 2f)
+            centralTime -= dt
+            clampTime()
         }
+        invalidateDrawing()
     }
 
     override fun onMouseWheel(x: Float, y: Float, dx: Float, dy: Float, byMouse: Boolean) {
+        if (Input.isControlDown) { // hack to allow scrolling the parent
+            super.onMouseWheel(x, y, dy, -dx, byMouse)
+        } else {
 
-        val scale = pow(1.05f, dx)
-        // set the center to the cursor
-        // works great :D
-        val normalizedX = (x - width / 2f) / (width / 2f)
-        centralTime += normalizedX * dtHalfLength * (1f - scale)
-        dtHalfLength *= scale
-        centralTime += dtHalfLength * 20f * dy / width
+            val scale = pow(1.05f, dx)
+            // set the center to the cursor
+            // works great :D
+            val normalizedX = (x - width / 2f) / (width / 2f)
+            centralTime += normalizedX * dtHalfLength * (1f - scale)
+            dtHalfLength *= scale
+            centralTime += dtHalfLength * 20f * dy / width
 
-        clampTime()
-
+            clampTime()
+        }
     }
 
     override val className get() = "TimelinePanel"

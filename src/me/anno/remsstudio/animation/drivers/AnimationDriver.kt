@@ -1,7 +1,6 @@
 package me.anno.remsstudio.animation.drivers
 
-import me.anno.animation.Type
-import me.anno.io.ISaveable
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.language.translation.Dict
@@ -11,15 +10,14 @@ import me.anno.remsstudio.Selection.selectProperty
 import me.anno.remsstudio.Selection.selectedTransforms
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.Transform
-import me.anno.studio.Inspectable
-import me.anno.ui.Panel
+import me.anno.ui.Style
+import me.anno.ui.WindowStack
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.base.menu.Menu.openMenu
 import me.anno.ui.base.menu.MenuOption
 import me.anno.ui.base.text.TextPanel
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
-import me.anno.ui.utils.WindowStack
+import me.anno.ui.input.NumberType
 import org.joml.Vector2d
 import org.joml.Vector3d
 import org.joml.Vector4d
@@ -65,20 +63,20 @@ abstract class AnimationDriver : Saveable(), Inspectable {
 
     open fun createInspector(
         inspected: List<Inspectable>,
-        list: MutableList<Panel>,
+        list: PanelListY,
         transforms: List<Transform>,
         style: Style,
         getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
     ) {
         val transform = transforms[0]
         list += transform.vis(
-            listOf(transform), listOf(transform), "Amplitude", "Scale of randomness",
-            "driver.amplitude", listOf(amplitude), style
+            listOf(transform), "Amplitude", "Scale of randomness", "driver.amplitude",
+            listOf(amplitude), style
         )
         list += transform.vi(
             inspected, "Frequency", "How fast it's changing", "driver.frequency",
-            Type.DOUBLE, frequency, style
-        ) { frequency = it }
+            NumberType.DOUBLE, frequency, style
+        ) { it, _ -> frequency = it }
     }
 
     fun show(toShow: List<AnimatedProperty<*>>?) {
@@ -91,17 +89,11 @@ abstract class AnimationDriver : Saveable(), Inspectable {
         writer.writeObject(this, "amplitude", amplitude)
     }
 
-    override fun readObject(name: String, value: ISaveable?) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
             "amplitude" -> amplitude.copyFrom(value)
-            else -> super.readObject(name, value)
-        }
-    }
-
-    override fun readDouble(name: String, value: Double) {
-        when (name) {
-            "frequency" -> frequency = value
-            else -> super.readDouble(name, value)
+            "frequency" -> frequency = value as? Double ?: return
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -112,14 +104,19 @@ abstract class AnimationDriver : Saveable(), Inspectable {
         list: PanelListY,
         style: Style,
         getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+    ) = createInspector(listOf(this), list, style, getGroup)
+
+    override fun createInspector(
+        inspected: List<Inspectable>,
+        list: PanelListY,
+        style: Style,
+        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
     ) {
-        list += TextPanel(
-            Dict["Driver Inspector", "driver.inspector.title"],
-            style
-        )
+        list += TextPanel(Dict["Driver Inspector", "driver.inspector.title"], style)
         val t = selectedTransforms
-        createInspector(t, list.children, t, style, getGroup)
+        createInspector(inspected, list, t, style, getGroup)
     }
+
 
     companion object {
         fun openDriverSelectionMenu(
@@ -136,7 +133,7 @@ abstract class AnimationDriver : Saveable(), Inspectable {
                 MenuOption(
                     NameDesc("Custom", "Specify your own formula", "obj.driver.custom"),
                     add { FunctionDriver() }),
-                MenuOption( // todo only add for time?
+                MenuOption( // todo only add for "Advanced Time"?
                     NameDesc(
                         "Rhythm",
                         "Map timestamps to musical rhythm for satisfying timelapses",
@@ -149,6 +146,7 @@ abstract class AnimationDriver : Saveable(), Inspectable {
                 options.add(0,
                     MenuOption(NameDesc("Customize", "Change the driver properties", "driver.edit")) {
                         selectProperty(listOf(oldDriver))
+                        // todo why doesn't it draw the lines when adding (Selection.selectedProperties ?: emptyList())?
                     })
                 options += MenuOption(
                     NameDesc("Remove Driver", "Changes back to keyframe-animation", "driver.remove")

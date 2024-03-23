@@ -1,16 +1,15 @@
 package me.anno.remsstudio.ui.input.components
 
-import me.anno.input.Input
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.Selection
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.animation.drivers.AnimationDriver
+import me.anno.ui.Style
 import me.anno.ui.input.FloatInput
 import me.anno.ui.input.IntInput
 import me.anno.ui.input.NumberInput
 import me.anno.ui.input.components.NumberInputComponent
-import me.anno.ui.style.Style
 import me.anno.utils.types.AnyToDouble
 
 class NumberInputComponentV2(
@@ -18,8 +17,6 @@ class NumberInputComponentV2(
     visibilityKey: String,
     style: Style
 ) : NumberInputComponent(visibilityKey, style) {
-
-    val indexInProperty get() = indexInParent - 1
 
     init {
         setResetListener { AnyToDouble.getDouble(owningProperty.type.defaultValue, indexInProperty, 0.0).toString() }
@@ -32,20 +29,24 @@ class NumberInputComponentV2(
     val driver get() = owningProperty.drivers.getOrNull(indexInProperty)
     val hasDriver get() = driver != null
 
-    override fun onMouseDown(x: Float, y: Float, button: MouseButton) {
-        if (!hasDriver) {
-            super.onMouseDown(x, y, button)
-            numberInput.onMouseDown(x, y, button)
-        }
+    override fun onKeyDown(x: Float, y: Float, key: Key) {
+        if (key == Key.BUTTON_LEFT) {
+            if (!hasDriver) {
+                super.onKeyDown(x, y, key)
+                numberInput.onKeyDown(x, y, key)
+            }
+        } else super.onKeyDown(x, y, key)
     }
 
-    override fun onMouseUp(x: Float, y: Float, button: MouseButton) {
-        if (!hasDriver) numberInput.onMouseUp(x, y, button)
+    override fun onKeyUp(x: Float, y: Float, key: Key) {
+        if (key == Key.BUTTON_LEFT) {
+            if (!hasDriver) numberInput.onKeyUp(x, y, key)
+        } else super.onKeyUp(x, y, key)
     }
 
     override fun onMouseMoved(x: Float, y: Float, dx: Float, dy: Float) {
         if (!hasDriver) numberInput.onMouseMoved(x, y, dx, dy)
-        isDragging = !Input.isControlDown && Input.isLeftDown
+        super.onMouseMoved(x, y, dx, dy)
     }
 
     override fun onDraw(x0: Int, y0: Int, x1: Int, y1: Int) {
@@ -70,8 +71,8 @@ class NumberInputComponentV2(
         super.onDraw(x0, y0, x1, y1)
     }
 
-    override fun onMouseClicked(x: Float, y: Float, button: MouseButton, long: Boolean) {
-        if (!button.isLeft || long) {
+    override fun onMouseClicked(x: Float, y: Float, button: Key, long: Boolean) {
+        if (button != Key.BUTTON_LEFT || long) {
             val oldDriver = owningProperty.drivers[indexInProperty]
             AnimationDriver.openDriverSelectionMenu(windowStack, oldDriver) { driver ->
                 RemsStudio.largeChange("Changed driver to ${driver?.className}") {

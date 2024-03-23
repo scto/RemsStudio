@@ -1,26 +1,26 @@
 package me.anno.remsstudio.cli
 
 import me.anno.Engine
+import me.anno.Time
 import me.anno.cache.Cache
+import me.anno.engine.Events.workEventTasks
 import me.anno.gpu.GFX
 import me.anno.gpu.framebuffer.Frame
 import me.anno.gpu.hidden.HiddenOpenGLContext
 import me.anno.gpu.shader.ShaderLib
 import me.anno.gpu.texture.Texture2D
 import me.anno.gpu.texture.Texture2D.Companion.bindTexture
-import me.anno.installer.Installer.checkInstall
+import me.anno.installer.Installer
 import me.anno.io.config.ConfigBasics
-import me.anno.io.files.FileReference.Companion.getReference
 import me.anno.io.files.InvalidRef
-import me.anno.io.text.TextReader
+import me.anno.io.files.Reference.getReference
+import me.anno.io.json.saveable.JsonStringReader
 import me.anno.remsstudio.*
 import me.anno.remsstudio.gpu.ShaderLibV2
 import me.anno.remsstudio.objects.Transform
-import me.anno.studio.CommandLines.parseDouble
-import me.anno.studio.CommandLines.parseFloat
-import me.anno.studio.CommandLines.parseInt
-import me.anno.studio.StudioBase
-import me.anno.studio.StudioBase.Companion.workEventTasks
+import me.anno.utils.CommandLineUtils.parseDouble
+import me.anno.utils.CommandLineUtils.parseFloat
+import me.anno.utils.CommandLineUtils.parseInt
 import me.anno.utils.Sleep.sleepABit
 import me.anno.utils.types.Strings.getImportType
 import me.anno.utils.types.Strings.isBlank2
@@ -72,12 +72,22 @@ object RemsCLI {
             return printHelp(options)
         }
 
-        val sceneSource = if (line.hasOption("input")) {
-            readText(line.getOptionValue("input"))
+        val sceneSourceFile = if (line.hasOption("input")) {
+            getReference(line.getOptionValue("input"))
         } else return error("Input needs to be defined")
 
-        // todo find project above scene source
-        val project0 = getReference(sceneSource).getParent() ?: InvalidRef
+        // find project above scene source
+        var project0 = getReference(sceneSourceFile).getParent() ?: InvalidRef
+        var project1 = project0
+        while (true) {
+            project1 = project1.getParent() ?: break
+            if (project1.getChild("config.json").exists &&
+                project1.getChild("tabs.json").exists
+            ) {
+                project0 = project1
+                break
+            }
+        }
 
         val yes = line.hasOption("yes") || line.hasOption("force")
         val no = line.hasOption("no")
@@ -86,7 +96,7 @@ object RemsCLI {
         init()
 
         val scene = try {
-            TextReader.readFirstOrNull<Transform>(sceneSource, project0, true)
+            JsonStringReader.readFirstOrNull<Transform>(sceneSourceFile, project0, true)
                 ?: return error("Could not find scene")
         } catch (e: RuntimeException) {
             e.printStackTrace()
@@ -96,7 +106,7 @@ object RemsCLI {
 
         val project = if (line.hasOption("project")) {
             Project("Unnamed", getReference(line.getOptionValue("project")))
-        } else Project("Unknown", getReference(ConfigBasics.cacheFolder, "project0").apply { mkdirs() })
+        } else Project("Unknown", ConfigBasics.cacheFolder.getChild("project0").apply { mkdirs() })
         RemsStudio.project = project
 
         project.targetFPS = line.parseDouble("fps", project.targetFPS)
@@ -176,7 +186,7 @@ object RemsCLI {
         while (!isDone) {
             Texture2D.destroyTextures()
             GFX.resetFBStack()
-            Engine.updateTime()
+            Time.updateTime()
             Cache.update()
             bindTexture(GL11C.GL_TEXTURE_2D, 0)
             // BlendDepth.reset()
@@ -189,8 +199,7 @@ object RemsCLI {
         }
 
         LOGGER.info("Done")
-
-        StudioBase.shallStop = true
+        Engine.requestShutdown()
 
     }
 
@@ -210,7 +219,7 @@ object RemsCLI {
     fun init() {
         RemsStudio.setupNames()
         RemsConfig.init()
-        checkInstall()
+        Installer.checkFFMPEGInstall()
         // checkVersion() needs to be killed, if the time is long over ;)
     }
 
@@ -242,11 +251,6 @@ object RemsCLI {
             if (valueInt < 1) throw ParseException("Size must not be smaller than 1!")
             return valueInt
         } else defaultValue
-    }
-
-    private fun readText(source: String): String {
-        return if (source.startsWith("text://", true)) source.substring(7)
-        else getReference(source).readTextSync()
     }
 
     private fun printHelp(options: Options) {

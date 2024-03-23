@@ -1,7 +1,8 @@
 package me.anno.remsstudio.audio
 
-import me.anno.Engine.gameTime
+import me.anno.Time.gameTimeN
 import me.anno.animation.LoopingState
+import me.anno.audio.AudioCache.playbackSampleRate
 import me.anno.audio.AudioPools.FAPool
 import me.anno.audio.AudioPools.SAPool
 import me.anno.audio.streams.AudioStreamRaw.Companion.bufferSize
@@ -9,6 +10,7 @@ import me.anno.cache.CacheData
 import me.anno.cache.CacheSection
 import me.anno.cache.ICacheData
 import me.anno.gpu.GFX
+import me.anno.io.MediaMetadata
 import me.anno.io.files.FileReference
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.max
@@ -21,14 +23,13 @@ import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
 import me.anno.utils.Sleep.acquire
 import me.anno.utils.hpc.ProcessingQueue
-import me.anno.video.AudioCreator.Companion.playbackSampleRate
-import me.anno.video.ffmpeg.FFMPEGMetadata
 import java.util.concurrent.Semaphore
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.roundToLong
 
+@Suppress("MemberVisibilityCanBePrivate")
 object AudioFXCache2 : CacheSection("AudioFX-RS") {
 
     // limit the number of requests for performance,
@@ -40,7 +41,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
 
     data class EffectKey(val effect: SoundEffect, val data: Any, val previous: EffectKey?)
 
-    class PipelineKey(
+    data class PipelineKey(
         val file: FileReference,
         val time0: Time,
         val time1: Time,
@@ -143,7 +144,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
                 Engine.shutdown()
                 throw IllegalStateException("Cannot destroy twice, now $gameTime, then: $isDestroyed!")
             }*/
-            isDestroyed = gameTime
+            isDestroyed = gameTimeN
             /*FAPool.returnBuffer(timeLeft)
             FAPool.returnBuffer(freqLeft)
             FAPool.returnBuffer(timeRight)
@@ -205,14 +206,14 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
     )
 
     fun getRawData(
-        meta: FFMPEGMetadata,
+        meta: MediaMetadata,
         source: Audio?,
         destination: Camera?,
         key: PipelineKey
     ): AudioData {
         // we cannot simply return null from this function, so getEntryLimited isn't an option
         acquire(true, rawDataLimiter)
-        val entry = getEntry(key to "", timeout, false) {
+        val entry = getEntry(key to "raw", timeout, false) {
             val stream = AudioStreamRaw2(
                 key.file, key.repeat,
                 meta, key.is3D,
@@ -238,7 +239,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
     }
 
     fun getBuffer0(
-        meta: FFMPEGMetadata,
+        meta: MediaMetadata,
         source: Audio?,
         destination: Camera?,
         pipelineKey: PipelineKey,
@@ -252,7 +253,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
     }
 
     fun getBuffer0(
-        meta: FFMPEGMetadata,
+        meta: MediaMetadata,
         pipelineKey: PipelineKey,
         async: Boolean
     ): AudioData? = getBuffer0(meta, null, null, pipelineKey, async)

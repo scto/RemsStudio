@@ -1,15 +1,14 @@
 package me.anno.remsstudio.objects.models
 
-import me.anno.gpu.GFX
+import me.anno.ecs.components.mesh.Mesh
+import me.anno.gpu.buffer.DrawMode
 import me.anno.gpu.shader.ShaderLib
-import me.anno.gpu.buffer.Attribute
-import me.anno.gpu.buffer.StaticBuffer
 import me.anno.remsstudio.RemsStudio
+import me.anno.remsstudio.gpu.ShaderLibV2
 import me.anno.utils.types.Floats.toRadians
 import org.joml.Matrix4fArrayList
 import org.joml.Vector3f
 import org.joml.Vector4f
-import org.lwjgl.opengl.GL11C
 import kotlin.math.tan
 
 object CameraModel {
@@ -27,35 +26,30 @@ object CameraModel {
         val scaleY = scaleZ * tan(fov.toRadians() / 2f)
         val scaleX = scaleY * RemsStudio.targetWidth / RemsStudio.targetHeight
         stack.scale(scaleX, scaleY, scaleZ)
-        val shader = ShaderLib.lineShader3D.value
+        val shader = ShaderLibV2.lineShader3D.value
 
         // todo show the standard level only on user request, or when DOF is enabled
         // todo render the intersections instead
         shader.use()
         shader.m4x4("transform", stack)
         shader.v4f("color", color)
-        GFX.shaderColor(shader, "tint", -1)
-        cameraModel.draw(shader)
+        shader.v4f("tint", -1)
+        cameraModel.draw(shader, 0)
 
         stack.scale(near)
         shader.m4x4("transform", stack)
-        cameraModel.draw(shader)
+        cameraModel.draw(shader, 0)
 
         stack.scale(far / near)
         shader.m4x4("transform", stack)
-        cameraModel.draw(shader)
+        cameraModel.draw(shader, 0)
 
     }
 
-    fun destroy(){
-        cameraModel.destroy()
-    }
+    private val cameraModel = Mesh().apply {
 
-    private val cameraModel: StaticBuffer = StaticBuffer(
-        listOf(
-            Attribute("coords", 3)
-        ), 2 * 8
-    ).apply {
+        val vertexCount = 16
+        val positions = FloatArray(vertexCount * 3)
 
         // points
         val zero = Vector3f()
@@ -63,6 +57,13 @@ object CameraModel {
         val p01 = Vector3f(-1f, +1f, -1f)
         val p10 = Vector3f(+1f, -1f, -1f)
         val p11 = Vector3f(+1f, +1f, -1f)
+
+        var i = 0
+        fun put(v: Vector3f) {
+            positions[i++] = v.x
+            positions[i++] = v.y
+            positions[i++] = v.z
+        }
 
         // lines to frame
         put(zero)
@@ -90,8 +91,7 @@ object CameraModel {
         put(p10)
         put(p00)
 
-        drawMode = GL11C.GL_LINES
+        this.positions = positions
+        drawMode = DrawMode.LINES
     }
-
-
 }

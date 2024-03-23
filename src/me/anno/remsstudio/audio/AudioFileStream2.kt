@@ -2,13 +2,13 @@ package me.anno.remsstudio.audio
 
 import me.anno.animation.LoopingState
 import me.anno.audio.streams.AudioFileStream
+import me.anno.io.MediaMetadata
+import me.anno.io.MediaMetadata.Companion.getMeta
 import me.anno.io.files.FileReference
 import me.anno.remsstudio.audio.AudioFXCache2.convert
 import me.anno.remsstudio.audio.effects.Time
 import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
-import me.anno.video.ffmpeg.FFMPEGMetadata
-import me.anno.video.ffmpeg.FFMPEGMetadata.Companion.getMeta
 
 // only play once, then destroy; it makes things easier
 // (on user input and when finally rendering only)
@@ -32,7 +32,7 @@ open class AudioFileStream2(
     file: FileReference,
     repeat: LoopingState,
     startIndex: Long,
-    meta: FFMPEGMetadata,
+    meta: MediaMetadata,
     val source: Audio,
     val destination: Camera,
     speed: Double,
@@ -56,7 +56,6 @@ open class AudioFileStream2(
 
     override fun getBuffer(bufferIndex: Long): Pair<ShortArray?, ShortArray?> {
         val data = AudioFXCache2.getBuffer(bufferIndex, this, false)!!
-        // todo skip double conversion if possible...
         return Pair(convert(data.first), convert(data.second))
     }
 

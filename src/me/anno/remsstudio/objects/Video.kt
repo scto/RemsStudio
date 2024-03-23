@@ -1,27 +1,23 @@
 package me.anno.remsstudio.objects
 
 import me.anno.animation.LoopingState
-import me.anno.animation.Type
 import me.anno.audio.openal.AudioManager
-import me.anno.audio.openal.AudioTasks
-import me.anno.cache.data.ImageData.Companion.imageTimeout
-import me.anno.cache.data.VideoData.Companion.framesPerContainer
-import me.anno.cache.instances.OldMeshCache
-import me.anno.cache.instances.VideoCache.getVideoFrame
-import me.anno.cache.instances.VideoCache.getVideoFrameWithoutGenerator
+import me.anno.audio.openal.AudioTasks.addAudioTask
 import me.anno.config.DefaultConfig
 import me.anno.ecs.annotations.Range
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX
 import me.anno.gpu.GFX.isFinalRendering
-import me.anno.gpu.drawing.GFXx3D.draw3D
 import me.anno.gpu.drawing.UVProjection
 import me.anno.gpu.texture.Clamping
-import me.anno.gpu.texture.Filtering
 import me.anno.gpu.texture.Texture2D
+import me.anno.gpu.texture.TextureCache
 import me.anno.gpu.texture.TextureLib
 import me.anno.gpu.texture.TextureLib.colorShowTexture
-import me.anno.image.ImageGPUCache
-import me.anno.io.ISaveable
+import me.anno.gpu.texture.TextureReader.Companion.imageTimeout
+import me.anno.image.svg.SVGMeshCache
+import me.anno.io.MediaMetadata
+import me.anno.io.MediaMetadata.Companion.getMeta
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
@@ -41,14 +37,14 @@ import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.gpu.GFXx3Dv2
 import me.anno.remsstudio.gpu.GFXx3Dv2.draw3DVideo
 import me.anno.remsstudio.gpu.GFXxSVGv2
+import me.anno.remsstudio.gpu.TexFiltering
+import me.anno.remsstudio.gpu.TexFiltering.Companion.getFiltering
 import me.anno.remsstudio.objects.lists.Element
 import me.anno.remsstudio.objects.lists.SplittableElement
 import me.anno.remsstudio.objects.models.SpeakerModel.drawSpeakers
 import me.anno.remsstudio.objects.modes.VideoType
-import me.anno.remsstudio.objects.modes.editorFPS
-import me.anno.studio.Inspectable
-import me.anno.studio.StudioBase
 import me.anno.ui.Panel
+import me.anno.ui.Style
 import me.anno.ui.base.SpyPanel
 import me.anno.ui.base.buttons.TextButton
 import me.anno.ui.base.groups.PanelListY
@@ -57,7 +53,7 @@ import me.anno.ui.editor.PropertyInspector.Companion.invalidateUI
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.EnumInput
 import me.anno.ui.input.FloatInput
-import me.anno.ui.style.Style
+import me.anno.ui.input.NumberType
 import me.anno.utils.Clipping
 import me.anno.utils.structures.ValueWithDefault
 import me.anno.utils.structures.ValueWithDefault.Companion.writeMaybe
@@ -67,13 +63,13 @@ import me.anno.utils.types.Booleans.toInt
 import me.anno.utils.types.Floats.f2
 import me.anno.utils.types.Strings.formatTime2
 import me.anno.utils.types.Strings.getImportType
-import me.anno.video.BlankFrameDetector
 import me.anno.video.ImageSequenceMeta
 import me.anno.video.ImageSequenceMeta.Companion.imageSequenceIdentifier
 import me.anno.video.MissingFrameException
-import me.anno.video.ffmpeg.FFMPEGMetadata
-import me.anno.video.ffmpeg.FFMPEGMetadata.Companion.getMeta
-import me.anno.video.ffmpeg.IsFFMPEGOnly.isFFMPEGOnlyExtension
+import me.anno.video.VideoCache.getVideoFrame
+import me.anno.video.VideoCache.getVideoFrameWithoutGenerator
+import me.anno.video.ffmpeg.FrameReader.Companion.isFFMPEGOnlyExtension
+import me.anno.video.formats.gpu.BlankFrameDetector
 import me.anno.video.formats.gpu.GPUFrame
 import org.apache.logging.log4j.LogManager
 import org.joml.Matrix4f
@@ -108,6 +104,10 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
 
     companion object {
 
+        val framesPerContainer = 128
+
+        val editorFPS = intArrayOf(1, 2, 3, 5, 10, 24, 30, 60, 90, 120, 144, 240, 300, 360)
+
         private val LOGGER = LogManager.getLogger(Video::class)
 
         private val forceAutoScale get() = DefaultConfig["rendering.video.forceAutoScale", true]
@@ -134,26 +134,32 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
     val clampMode = ValueWithDefault(Clamping.MIRRORED_REPEAT)
 
     // filtering
-    val filtering = ValueWithDefaultFunc { DefaultConfig["default.video.nearest", Filtering.CUBIC] }
+    val filtering = ValueWithDefaultFunc { DefaultConfig.getFiltering("default.video.filtering", TexFiltering.CUBIC) }
 
     // resolution
     val videoScale = ValueWithDefaultFunc { DefaultConfig["default.video.scale", 1] }
 
     var lastFile: FileReference? = null
-    var lastMeta: FFMPEGMetadata? = null
-    var lastDuration = 10.0
+    var lastMeta: MediaMetadata? = null
+    var lastDuration = Double.POSITIVE_INFINITY
 
     var imageSequenceMeta: ImageSequenceMeta? = null
-    val imSeqExampleMeta get() = imageSequenceMeta?.matches?.firstOrNull()?.first?.run { getMeta(this, true) }
+    val imSeqExampleMeta: MediaMetadata?
+        get() = imageSequenceMeta?.matches?.firstOrNull()?.first?.run {
+            getMeta(
+                this,
+                true
+            )
+        }
 
     var type = VideoType.UNKNOWN
 
     @Range(0.0, 3.0)
     var blankFrameThreshold = 0f
 
-    override fun getDocumentationURL(): URL? = when (type) {
-        VideoType.IMAGE -> URL("https://remsstudio.phychi.com/?s=learn/images")
-        VideoType.VIDEO, VideoType.IMAGE_SEQUENCE -> URL("https://remsstudio.phychi.com/?s=learn/videos")
+    override fun getDocumentationURL(): String? = when (type) {
+        VideoType.IMAGE -> "https://remsstudio.phychi.com/?s=learn/images"
+        VideoType.VIDEO, VideoType.IMAGE_SEQUENCE -> "https://remsstudio.phychi.com/?s=learn/videos"
         else -> null
     }
 
@@ -185,16 +191,18 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
     val cgOffsetSub = AnimatedProperty.color3(Vector3f())
     val cgSlope = AnimatedProperty.color(Vector4f(1f, 1f, 1f, 1f))
     val cgPower = AnimatedProperty.color(Vector4f(1f, 1f, 1f, 1f))
-    val cgSaturation = AnimatedProperty.float(1f) // only allow +? only 01?
+    val cgSaturation = AnimatedProperty.float(1f)
 
     var lastW = 16
     var lastH = 9
 
     override fun getEndTime(): Double = when (isLooping.value) {
         LoopingState.PLAY_ONCE -> {
-            when (type) {
+            if (stayVisibleAtEnd) Double.POSITIVE_INFINITY
+            else when (type) {
                 VideoType.IMAGE_SEQUENCE -> imageSequenceMeta?.duration
                 VideoType.IMAGE -> Double.POSITIVE_INFINITY
+                VideoType.UNKNOWN -> Double.POSITIVE_INFINITY
                 else -> meta?.duration
             } ?: Double.POSITIVE_INFINITY
         }
@@ -203,7 +211,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
 
     override fun isVisible(localTime: Double): Boolean {
         val looping = isLooping.value
-        return localTime >= 0.0 && (looping != LoopingState.PLAY_ONCE || localTime < lastDuration)
+        return localTime >= 0.0 && (stayVisibleAtEnd || looping != LoopingState.PLAY_ONCE || localTime < lastDuration)
     }
 
     override fun transformLocally(pos: Vector3f, time: Double): Vector3f {
@@ -297,7 +305,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
 
             val isLooping = isLooping.value
             val duration = meta.duration
-            println("drawing image sequence, setting duration to $duration")
+            LOGGER.debug("drawing image sequence, setting duration to $duration")
             lastDuration = duration
 
             if (time >= 0.0 && (isLooping != LoopingState.PLAY_ONCE || time <= duration)) {
@@ -305,8 +313,8 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
                 // draw the current texture
                 val localTime = isLooping[time, duration]
 
-                val frame = ImageGPUCache[meta.getImage(localTime), 5L, true]
-                if (frame == null || !frame.isCreated) onMissingImageOrFrame((localTime * 1000).toInt())
+                val frame = TextureCache[meta.getImage(localTime), 5L, true]
+                if (frame == null || !frame.isCreated()) onMissingImageOrFrame((localTime * 1000).toInt())
                 else {
                     lastW = frame.width
                     lastH = frame.height
@@ -323,10 +331,10 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
         }
 
         if (!wasDrawn && !isFinalRendering) {
-            draw3D(
+            GFXx3Dv2.draw3D(
                 stack, colorShowTexture, 16, 9,
                 Vector4f(0.5f, 0.5f, 0.5f, 1f).mul(color),
-                Filtering.NEAREST, Clamping.REPEAT, tiling16x9, uvProjection.value
+                TexFiltering.NEAREST, Clamping.REPEAT, tiling16x9, uvProjection.value
             )
         }
 
@@ -338,7 +346,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
         // LOGGER.info("missing frame")
     }
 
-    fun getFrameAtLocalTime(time: Double, width: Int, meta: FFMPEGMetadata): GPUFrame? {
+    fun getFrameAtLocalTime(time: Double, width: Int, meta: MediaMetadata): GPUFrame? {
 
         // only load a single frame at a time?? idk...
 
@@ -382,7 +390,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
     private var lastFrame: GPUFrame? = null
 
     private fun drawVideo(
-        meta: FFMPEGMetadata, stack: Matrix4fArrayList, time: Double, color: Vector4f,
+        meta: MediaMetadata, stack: Matrix4fArrayList, time: Double, color: Vector4f,
         getFrame: (zoomLevel: Int, frameIndex0: Int, videoFPS: Double) -> GPUFrame?
     ) {
 
@@ -413,7 +421,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
             val isVisible = Clipping.isPlaneVisible(stack, meta.videoWidth * scale, meta.videoHeight * scale)
             if (time >= 0.0 && (isLooping != LoopingState.PLAY_ONCE || time <= duration) && isVisible) {
 
-                // use full fps when rendering to correctly render at max fps with time dilation
+                // use the full fps when rendering to correctly render at max fps with time dilation
                 // issues arise, when multiple frames should be interpolated together into one
                 // at this time, we chose the center frame only.
                 val videoFPS = if (isFinalRendering) sourceFPS else min(sourceFPS, editorVideoFPS.value.toDouble())
@@ -468,15 +476,15 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
         }
 
         if (!wasDrawn) {
-            draw3D(
+            GFXx3Dv2.draw3D(
                 stack, colorShowTexture, 16, 9,
                 Vector4f(0.5f, 0.5f, 0.5f, 1f).mul(color),
-                Filtering.NEAREST, Clamping.REPEAT, tiling16x9, uvProjection.value
+                TexFiltering.NEAREST, Clamping.REPEAT, tiling16x9, uvProjection.value
             )
         }
     }
 
-    fun getFrame(zoomLevel: Int, meta: FFMPEGMetadata, frameIndex: Int, videoFPS: Double): GPUFrame? {
+    fun getFrame(zoomLevel: Int, meta: MediaMetadata, frameIndex: Int, videoFPS: Double): GPUFrame? {
 
         val scale = max(1, zoomLevel)
         val bufferSize = framesPerContainer
@@ -509,27 +517,27 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
         val ext = file.extension
         return when {
             ext.equals("svg", true) ->
-                OldMeshCache.getSVG(file, imageTimeout, true)
+                SVGMeshCache[file, imageTimeout, true]
             ext.equals("webp", true) || ext.equals("dds", true) ->
                 // calculate required scale? no, without animation, we don't need to scale it down ;)
                 getVideoFrame(file, 1, 0, 1, 1.0, imageTimeout, true)
             else -> // some image
-                ImageGPUCache[file, imageTimeout, true]
+                TextureCache[file, imageTimeout, true]
         }
     }
 
     private fun drawImage(stack: Matrix4fArrayList, time: Double, color: Vector4f) {
         val file = file
-        val ext = file.extension
+        val ext = file.lcExtension
         when {
-            ext.equals("svg", true) -> {
-                val bufferData = OldMeshCache.getSVG(file, imageTimeout, true)
+            ext == "svg" -> {
+                val bufferData = SVGMeshCache[file, imageTimeout, true]
                 if (bufferData == null) onMissingImageOrFrame(0)
                 else {
                     GFXxSVGv2.draw3DSVG(
                         this, time,
                         stack, bufferData, TextureLib.whiteTexture,
-                        color, Filtering.NEAREST, clampMode.value, tiling[time]
+                        color, TexFiltering.NEAREST, clampMode.value, tiling[time]
                     )
                 }
             }
@@ -539,6 +547,8 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
                 val texture = getVideoFrame(file, 1, 0, 1, 1.0, imageTimeout, true)
                 if (texture == null || !texture.isCreated) onMissingImageOrFrame(0)
                 else {
+                    lastW = texture.width
+                    lastH = texture.height
                     draw3DVideo(
                         this, time, stack, texture, color,
                         filtering.value, clampMode.value, tiling, uvProjection.value
@@ -547,15 +557,15 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
             }
             else -> {// some image
                 val tiling = tiling[time]
-                val texture = ImageGPUCache[file, imageTimeout, true]
-                if (texture == null || !texture.isCreated) onMissingImageOrFrame(0)
+                val texture = TextureCache[file, imageTimeout, true]
+                if (texture == null || !texture.isCreated()) onMissingImageOrFrame(0)
                 else {
-                    texture.rotation?.apply(stack)
+                    (texture as? Texture2D)?.rotation?.apply(stack)
                     lastW = texture.width
                     lastH = texture.height
                     draw3DVideo(
                         this, time, stack, texture, color,
-                        this.filtering.value, this.clampMode.value, tiling, uvProjection.value
+                        filtering.value, clampMode.value, tiling, uvProjection.value
                     )
                 }
             }
@@ -580,7 +590,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
                     val isLooping = isLooping.value
 
                     if (sourceFPS > 0.0) {
-                        if (maxT >= 0.0 && (isLooping != LoopingState.PLAY_ONCE || minT < duration)) {
+                        if (maxT >= 0.0 && (stayVisibleAtEnd || isLooping != LoopingState.PLAY_ONCE || minT < duration)) {
 
                             // use full fps when rendering to correctly render at max fps with time dilation
                             // issues arise, when multiple frames should be interpolated together into one
@@ -611,7 +621,6 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
                                     )
                                 }
                             }
-
                         }
                     }
                 }
@@ -624,7 +633,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
                     val duration = meta.duration
                     val isLooping = isLooping.value
 
-                    if (maxT >= 0.0 && (isLooping != LoopingState.PLAY_ONCE || minT < duration)) {
+                    if (maxT >= 0.0 && (stayVisibleAtEnd || isLooping != LoopingState.PLAY_ONCE || minT < duration)) {
 
                         // draw the current texture
                         val localTime0 = isLooping[minT, duration]
@@ -635,14 +644,14 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
 
                         if (index1 >= index0) {
                             for (i in index0..index1) {
-                                ImageGPUCache[meta.getImage(i), videoFrameTimeout, true]
+                                TextureCache[meta.getImage(i), videoFrameTimeout, true]
                             }
                         } else {
                             for (i in index1 until meta.matches.size) {
-                                ImageGPUCache[meta.getImage(i), videoFrameTimeout, true]
+                                TextureCache[meta.getImage(i), videoFrameTimeout, true]
                             }
                             for (i in 0 until index0) {
-                                ImageGPUCache[meta.getImage(i), videoFrameTimeout, true]
+                                TextureCache[meta.getImage(i), videoFrameTimeout, true]
                             }
                         }
 
@@ -835,7 +844,7 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
         infoGroup += aud(UpdatingTextPanel(250, style) { "Sample Rate: ${lastMeta?.audioSampleRate} samples/s" })
         infoGroup += aud(UpdatingTextPanel(250, style) { "Sample Count: ${lastMeta?.audioSampleCount} samples" })
 
-        list += vi(inspected, "File Location", "Source file of this video", null, file, style) { newFile ->
+        list += vi(inspected, "File Location", "Source file of this video", null, file, style) { newFile, _ ->
             for (x in c) x.file = newFile
         }
 
@@ -850,25 +859,49 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
             vi(
                 inspected, "UV-Projection", "Can be used for 360°-Videos",
                 null, uvProjection.value, style
-            ) { for (x in c) x.uvProjection.value = it })
+            ) { it, _ -> for (x in c) x.uvProjection.value = it })
         uvMap += img(
             vi(
                 inspected, "Filtering", "Pixelated look?", "texture.filtering",
                 null, filtering.value, style
-            ) { for (x in c) x.filtering.value = it })
+            ) { it, _ -> for (x in c) x.filtering.value = it })
         uvMap += img(
             vi(
                 inspected, "Clamping", "For tiled images", "texture.clamping",
                 null, clampMode.value, style
-            ) { for (x in c) x.clampMode.value = it })
+            ) { it, _ -> for (x in c) x.clampMode.value = it })
+
+        fun invalidateTimeline() {
+            AudioManager.requestUpdate()
+            // todo this needs multiple frames of invalidation, probably...
+            /*addEvent { // needs a little timeout
+                for (window in GFX.windows) {
+                    for (window1 in window.windowStack) {
+                        window1.panel.forAllVisiblePanels {
+                            if (it is LayerView) it.invalidateLayout()
+                        }
+                    }
+                }
+            }*/
+        }
 
         val time = getGroup("Time", "", "time")
         time += vi(
             inspected, "Looping Type", "Whether to repeat the song/video", "video.loopingType",
+            "video.loopingType",
             null, isLooping.value, style
-        ) {
+        ) { it, _ ->
             for (x in c) x.isLooping.value = it
-            AudioManager.requestUpdate()
+            invalidateTimeline()
+        }
+        time += vi(
+            inspected, "Stay Visible At End",
+            "Normally a video fades out, or loops; this lets it stay on the last frame",
+            "video.stayVisibleAtEnd", "video.stayVisibleAtEnd",
+            null, stayVisibleAtEnd, style
+        ) { it, _ ->
+            for (x in c) x.stayVisibleAtEnd = it
+            invalidateTimeline()
         }
 
         val editor = getGroup("Editor", "", "editor")
@@ -903,21 +936,21 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
                 "When a set percentage of pixels change within 1 frame, that frame is removed from the source\n" +
                         "The higher, the more frames are accepted; 0 = disabled\n" +
                         "Cannot handle more than two adjacent blank frames",
-                blankFrameThreshold, Type.FLOAT_03, style
+                blankFrameThreshold, NumberType.FLOAT_03, style
             )
                 .setChangeListener { for (x in c) x.blankFrameThreshold = it.toFloat() }
                 .setIsSelectedListener { show(t, null) })
 
 
         ColorGrading.createInspector(
-            inspected, c, c.map { it.cgPower }, c.map { it.cgSaturation }, c.map { it.cgSlope },
-            c.map { it.cgOffsetAdd }, c.map { it.cgOffsetSub },
-            { img(it) }, getGroup, style
+            c, c.map { it.cgPower }, c.map { it.cgSaturation }, c.map { it.cgSlope }, c.map { it.cgOffsetAdd },
+            c.map { it.cgOffsetSub }, { img(it) },
+            getGroup, style
         )
 
         val audio = getGroup("Audio", "", "audio")
-        audio += aud(vis(inspected, c, "Amplitude", "How loud it is", "audio.amplitude", c.map { it.amplitude }, style))
-        audio += aud(vi(inspected, "Is 3D Sound", "Sound becomes directional", "audio.3d", null, is3D, style) {
+        audio += aud(vis(c, "Amplitude", "How loud it is", "audio.amplitude", c.map { it.amplitude }, style))
+        audio += aud(vi(inspected, "Is 3D Sound", "Sound becomes directional", "audio.3d", null, is3D, style) { it, _ ->
             for (x in c) x.is3D = it
             AudioManager.requestUpdate()
         })
@@ -932,13 +965,18 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
                 if (isPaused) {
                     playbackButton.text = getPlaybackTitle(true)
                     if (component == null) {
-                        AudioTasks.addTask("start", 5) {
+                        addAudioTask("start", 5) {
                             val audio2 = Video(file, null)
+                            audio2.update() // load type
                             audio2.startPlayback(0.0, 1.0, nullCamera!!)
                             component = audio2.component
                         }
-                    } else AudioTasks.addTask("stop", 1) { stopPlayback() }
-                } else StudioBase.warn("Separated playback is only available with paused editor")
+                    } else {
+                        addAudioTask("stop", 1) {
+                            stopPlayback()
+                        }
+                    }
+                } else LOGGER.warn("Separated playback is only available with paused editor")
             }
             .setTooltip("Listen to the audio separated from the rest"))
 
@@ -978,28 +1016,24 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
         writer.writeObject(this, "cgSlope", cgSlope)
         writer.writeObject(this, "cgPower", cgPower)
         writer.writeMaybe(this, "editorVideoFPS", editorVideoFPS)
+        writer.writeBoolean("stayVisibleAtEnd", stayVisibleAtEnd)
     }
 
-    override fun readObject(name: String, value: ISaveable?) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
+            "stayVisibleAtEnd" -> stayVisibleAtEnd = value == true
             "tiling" -> tiling.copyFrom(value)
             "cgSaturation" -> cgSaturation.copyFrom(value)
             "cgOffset", "cgOffsetAdd" -> cgOffsetAdd.copyFrom(value)
             "cgOffsetSub" -> cgOffsetSub.copyFrom(value)
             "cgSlope" -> cgSlope.copyFrom(value)
             "cgPower" -> cgPower.copyFrom(value)
-            else -> super.readObject(name, value)
-        }
-    }
-
-    override fun readInt(name: String, value: Int) {
-        when (name) {
-            "videoScale" -> videoScale.value = value
-            "filtering" -> filtering.value = filtering.value.find(value)
+            "videoScale" -> videoScale.value = value as? Int ?: return
+            "filtering" -> filtering.value = filtering.value.find(value as? Int ?: return)
             "clamping" -> clampMode.value = Clamping.values().firstOrNull { it.id == value } ?: return
             "uvProjection" -> uvProjection.value = UVProjection.values().firstOrNull { it.id == value } ?: return
-            "editorVideoFPS" -> editorVideoFPS.value = clamp(value, 1, 1000)
-            else -> super.readInt(name, value)
+            "editorVideoFPS" -> editorVideoFPS.value = clamp(value as? Int ?: return, 1, 1000)
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -1085,5 +1119,4 @@ class Video(file: FileReference = InvalidRef, parent: Transform? = null) :
         clone.needsImageUpdate = needsImageUpdate
         return clone
     }
-
 }

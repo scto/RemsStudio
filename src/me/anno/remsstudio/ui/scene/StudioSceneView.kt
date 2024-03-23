@@ -1,20 +1,26 @@
 package me.anno.remsstudio.ui.scene
 
-import me.anno.Engine.deltaTime
+import me.anno.Time.deltaTime
+import me.anno.config.DefaultConfig
+import me.anno.engine.EngineBase.Companion.dragged
+import me.anno.engine.EngineBase.Companion.shiftSlowdown
 import me.anno.gpu.GFX
 import me.anno.gpu.GFX.addGPUTask
 import me.anno.gpu.GFXState.renderDefault
+import me.anno.gpu.drawing.DrawRectangles
 import me.anno.gpu.drawing.DrawRectangles.drawBorder
+import me.anno.gpu.framebuffer.DepthBufferType
 import me.anno.gpu.framebuffer.FBStack
 import me.anno.gpu.framebuffer.Screenshots
 import me.anno.gpu.framebuffer.StableWindowSize
-import me.anno.gpu.shader.Renderer
-import me.anno.gpu.shader.Renderer.Companion.colorRenderer
-import me.anno.gpu.shader.Renderer.Companion.colorSqRenderer
+import me.anno.gpu.shader.renderer.Renderer
+import me.anno.gpu.shader.renderer.Renderer.Companion.colorRenderer
+import me.anno.gpu.shader.renderer.Renderer.Companion.colorSqRenderer
+import me.anno.gpu.texture.Texture2D.Companion.switchRGB2BGR
 import me.anno.input.Input
 import me.anno.input.Input.isControlDown
 import me.anno.input.Input.isShiftDown
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.input.Touch.Companion.touches
 import me.anno.io.files.FileReference
 import me.anno.maths.Maths.clamp
@@ -34,27 +40,25 @@ import me.anno.remsstudio.Selection.selectedTransforms
 import me.anno.remsstudio.objects.Camera
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.effects.ToneMappers
+import me.anno.remsstudio.objects.particles.ParticleSystem
+import me.anno.remsstudio.objects.particles.distributions.CenterDistribution
+import me.anno.remsstudio.objects.particles.distributions.CenterSizeDistribution
 import me.anno.remsstudio.ui.StudioFileImporter.addChildFromFile
 import me.anno.remsstudio.ui.StudioTreeView.Companion.zoomToObject
 import me.anno.remsstudio.ui.editor.ISceneView
 import me.anno.remsstudio.ui.editor.SimplePanel
-import me.anno.studio.StudioBase.Companion.dragged
-import me.anno.studio.StudioBase.Companion.shiftSlowdown
 import me.anno.ui.Panel
+import me.anno.ui.Style
 import me.anno.ui.base.buttons.TextButton
 import me.anno.ui.base.groups.PanelList
 import me.anno.ui.custom.CustomContainer
 import me.anno.ui.editor.PropertyInspector.Companion.invalidateUI
 import me.anno.ui.editor.files.FileContentImporter
-import me.anno.ui.style.Style
 import me.anno.utils.Color.black
 import me.anno.utils.types.Booleans.toInt
 import me.anno.utils.types.Floats.toRadians
 import org.apache.logging.log4j.LogManager
-import org.joml.Matrix4f
-import org.joml.Matrix4fArrayList
-import org.joml.Vector3f
-import org.joml.Vector4f
+import org.joml.*
 import java.lang.Math.toDegrees
 import kotlin.math.atan2
 import kotlin.math.max
@@ -63,15 +67,11 @@ import kotlin.math.tan
 
 // todo disable ui circles via some check-button at the top bar
 
-// todo control click -> fullscreen view of this element?
-
-// todo right click on input to get context menu, e.g. to reset
-
 // todo key controls like in Blender:
-// start command with s/g/...
-// then specify axis if needed
-// then say the number + change axis
-// then press enter to apply the change
+//  start command with s/g/...
+//  then specify axis if needed
+//  then say the number + change axis
+//  then press enter to apply the change
 
 @Suppress("MemberVisibilityCanBePrivate")
 open class StudioSceneView(style: Style) : PanelList(null, style.getChild("sceneView")), ISceneView {
@@ -131,12 +131,10 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         }
         fun add(i: Int, mode: SceneDragMode) {
             controls += SimplePanel(
-                object : TextButton(mode.displayName, true, style) {
+                object : TextButton(mode.displayName, mode.description, true, style) {
                     override fun onDraw(x0: Int, y0: Int, x1: Int, y1: Int) {
-                        draw(x0, y0, x1, y1, isHovered, mouseDown || mode == this@StudioSceneView.mode)
+                        draw(x0, y0, x1, y1, isHovered, isPressed || mode == this@StudioSceneView.mode)
                     }
-                }.apply {
-                    setTooltip(mode.description)
                 },
                 true, true,
                 pad * 2 + iconSize * (i + 1), pad,
@@ -222,7 +220,9 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
 
     // switch between manual control and autopilot for time :)
     // -> do this by disabling controls when playing, excepts when it's the inspector camera (?)
-    val mayControlCamera get() = camera === nullCamera || isPaused
+    val mayControlCamera
+        get() = if (DefaultConfig["ui.editor.lockCameraWhenPlaying", false]) camera === nullCamera || isPaused
+        else true
 
     fun claimResources() {
         // this is expensive, so do it only when the time changed
@@ -233,8 +233,10 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         RemsStudio.root.claimResources(et, et + loadedTimeSeconds * if (edt == 0.0) 1.0 else edt, 1f, 1f)
     }
 
-    private val stableSize = StableWindowSize()
+    override val canDrawOverBorders: Boolean
+        get() = true
 
+    private val stableSize = StableWindowSize()
     override fun onDraw(x0: Int, y0: Int, x1: Int, y1: Int) {
 
         val mode = if (camera.toneMapping == ToneMappers.RAW8) colorRenderer else colorSqRenderer
@@ -250,14 +252,15 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         val dy = stableSize.dy + bt
 
         val white = -1
+        val b = DrawRectangles.startBatch()
         drawBorder(x, y, width, height, white, bth)
         drawBorder(x + bth, y + bth, width - bt, height - bt, black, bth)
         // filled with scene background color anyway
-        // drawRect(x + bt, y + bt, w - 2 * bt, h - 2 * bt, deepDark)
+        DrawRectangles.finishBatch(b)
 
         val x00 = x + dx
         val y00 = y + dy
-        val window = window ?: GFX.someWindow!!.windowStack.first()
+        val window = window ?: GFX.someWindow.windowStack.first()
         val wx = min(stableSize.stableWidth, window.width - x00)
         val wy = min(stableSize.stableHeight, window.height - y00)
         val rw = min(wx, width - 2 * bt)
@@ -280,6 +283,9 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
             drawChildren(x0, y0, x1, y1)
         }
 
+        // todo this text is always black... why???
+        // drawTypeInCorner("Scene", white)
+
     }
 
     fun resolveClick(clickX: Float, clickY: Float, width: Int, height: Int, callback: (Transform?) -> Unit) {
@@ -287,7 +293,7 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         val camera = camera
         GFX.check()
 
-        val buffer = FBStack["resolveClick", width, height, 4, true, 1, true]
+        val buffer = FBStack["resolveClick", width, height, 4, true, 1, DepthBufferType.INTERNAL]
 
         val diameter = 5
 
@@ -310,7 +316,9 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
             Scene.draw(camera, root, dx, dy, width, height, editorTime, false, Renderer.depthRenderer, this)
         }
 
-        /*LOGGER.debug(
+        switchRGB2BGR(idBuffer)
+
+        LOGGER.debug(
             "ResolveClick: " +
                     "[${idBuffer.joinToString { it.toUInt().toString(16) }}], " +
                     "[${depthBuffer.joinToString()}]"
@@ -318,7 +326,7 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         LOGGER.debug("Available IDs: ${
             root.listOfAll.toList()
                 .joinToString { it.clickId.toUInt().toString(16) }
-        }")*/
+        }")
 
         val bestResult = Screenshots.getClosestId(diameter, idBuffer, depthBuffer)
         // find the transform with the id to select it
@@ -343,7 +351,7 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
 
     fun parseKeyInput() {
         if (!mayControlCamera) return
-        moveCamera(clamp(deltaTime, 0f, 0.1f))
+        moveCamera(clamp(deltaTime.toFloat(), 0f, 0.1f))
     }
 
     fun moveCamera(dx: Float, dy: Float, dz: Float) {
@@ -396,19 +404,20 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
 
         // todo rotate/move our camera or the selected object?
         val size = -20f * shiftSlowdown / window!!.height
+        val touches = touches.values.toList()
         when (touches.size) {
             2 -> {
-                val first = touches[0]!!
+                val first = touches[0]
                 if (contains(first.x, first.y)) {
                     // this gesture started on this view -> this is our gesture
                     // rotating is the hardest on a touchpad, because we need to click right
                     // -> rotation
                     // axes: angle, zoom,
-                    val dx = touches.values.sumOf { (it.x - it.lastX).toDouble() }.toFloat() * size * 0.5f
-                    val dy = touches.values.sumOf { (it.y - it.lastY).toDouble() }.toFloat() * size * 0.5f
+                    val dx = touches.sumOf { (it.x - it.lastX).toDouble() }.toFloat() * size * 0.5f
+                    val dy = touches.sumOf { (it.y - it.lastY).toDouble() }.toFloat() * size * 0.5f
 
-                    val t0 = touches[0]!!
-                    val t1 = touches[1]!!
+                    val t0 = touches[0]
+                    val t1 = touches[1]
 
                     val d1 = length(t1.x - t0.x, t1.y - t0.y)
                     val d0 = length(t1.lastX - t0.lastX, t1.lastY - t0.lastY)
@@ -429,24 +438,30 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                     val old = camera.rotationYXZ[time]
                     val rotationSpeed = -10f
                     if (!isLocked2D) {
-                        camera.rotationYXZ.addKeyframe(time, old + Vector3f(dy * rotationSpeed, dx * rotationSpeed, 0f))
+                        // todo test this
+                        val newRotation = Vector3f(dy * rotationSpeed, dx * rotationSpeed, 0f).add(old)
+                        newRotation.x = clamp(newRotation.x, -90f, +90f)
+                        camera.rotationYXZ.addKeyframe(time, newRotation)
                     } else {
                         // move camera? completely ignore, what is selected
                     }
-                    touches.forEach { it.value.update() }
+                    touches.forEach { it.update() }
                     invalidateDrawing()
                 }
             }
+
             3 -> {
                 // very slow..., but we can move around with a single finger, so it shouldn't matter...
                 // move the camera around
-                val first = touches.values.first()
+                val first = touches.first()
                 val speed = 10f / 3f
                 if (contains(first.x, first.y)) {
-                    val dx = speed * touches.values.sumOf { (it.x - it.lastX).toDouble() }.toFloat() * size
-                    val dy = speed * touches.values.sumOf { (it.y - it.lastY).toDouble() }.toFloat() * size
+                    val dx = speed * touches.sumOf { (it.x - it.lastX).toDouble() }.toFloat() * size
+                    val dy = speed * touches.sumOf { (it.y - it.lastY).toDouble() }.toFloat() * size
                     moveSelected(camera, dx, dy)
-                    touches.forEach { it.value.update() }
+                    for (touch in touches) {
+                        touch.update()
+                    }
                     invalidateDrawing()
                 }
             }
@@ -460,7 +475,9 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
     private val target2camera = Matrix4f()
 
     fun moveSelected(selected: List<Transform>, dx0: Float, dy0: Float) {
-        for (s in selected) moveSelected(s, dx0, dy0)
+        for (s in selected) {
+            moveSelected(s, dx0, dy0)
+        }
     }
 
     fun moveSelected(selected: Transform, dx0: Float, dy0: Float) {
@@ -476,33 +493,30 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         global2normUI.clear()
         camera.applyTransform(cameraTime, camera2global, global2normUI)
 
-        // val inverse = Matrix4f(global2normUI).invert()
-
-        val global2target = global2target.set(target2global).invert()
+        val global2target = target2global.invert(global2target)
 
         // transforms: global to local
         // ->
         // camera local to global, then global to local
         //      obj   cam
         // v' = G2L * L2G * v
-        val camera2target = camera2target.set(camera2global).mul(global2target)
-        val target2camera = target2camera.set(camera2target).invert()
+        val camera2target = camera2global.mul(global2target, camera2target)
+        val target2camera = camera2target.invert(target2camera)
 
         // where the object is on screen
-        val v0 = target2camera.transform(Vector4f(0f, 0f, 0f, 1f))
-        val targetZonUI = Vector3f(v0.x, v0.y, v0.z)
-        val targetZ = -targetZonUI.z
+        val targetZOnUI = target2camera.getTranslation(Vector3f())
+        val targetZ = -targetZOnUI.z
         val shiftSlowdown = shiftSlowdown
         val speed = shiftSlowdown * 2 * targetZ / height * pow(0.02f, camera.orthographicness[cameraTime])
         val dx = dx0 * speed
         val dy = dy0 * speed
-        val pos1v = camera2target.transform(
-            Vector4f(targetZonUI.x + dx, targetZonUI.y - dy, targetZonUI.z, 1f)
-        )
-        val pos1 = Vector3f(pos1v.x, pos1v.y, pos1v.z)
 
         val delta0 = dx0 - dy0
         val delta = dx - dy
+
+        val selectedDist = (selected as? ParticleSystem)?.selectedDistribution
+        val selectedPosDist = selectedDist?.distribution as? CenterDistribution
+        val selectedRotDist = selectedPosDist as? CenterSizeDistribution
 
         when (mode) {
             SceneDragMode.MOVE -> {
@@ -511,16 +525,32 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                 // depends on FOV, camera and object transform
 
                 val oldPosition = selected.position[localTime]
-                val localDelta = if (isControlDown)
-                    camera2target.transformDirection(Vector3f(0f, 0f, -delta)) * (targetZ / 6)
-                else pos1
+                val localDelta = if (isControlDown) Vector3f(0f, 0f, -delta * targetZ / 6f)
+                else Vector3f(dx, -dy, 0f)
+
+                camera2target.transformDirection(localDelta)
+
                 invalidateDrawing()
                 RemsStudio.incrementalChange("Move Object") {
-                    selected.position.addKeyframe(localTime, oldPosition.add(localDelta))
+                    if (selectedPosDist != null) {
+                        // add keyframe to selectedPosDist
+                        val ch = selectedDist.channels[CenterSizeDistribution.POSITION_INDEX]
+                        when (val prev = ch[localTime]) {
+                            is Float -> ch.addKeyframe(localTime, prev + localDelta.x)
+                            is Vector2f -> ch.addKeyframe(localTime, Vector2f(prev).add(localDelta.x, localDelta.y))
+                            is Vector3f -> ch.addKeyframe(localTime, Vector3f(prev).add(localDelta))
+                            is Vector4f -> {
+                                val localDelta1 = Vector4f(localDelta.x, localDelta.y, localDelta.z, 0f)
+                                ch.addKeyframe(localTime, Vector4f(prev).add(localDelta1))
+                            }
+                        }
+                    } else {
+                        selected.position.addKeyframe(localTime, Vector3f(oldPosition).add(localDelta))
+                    }
                     invalidateUI(false)
                 }
-
             }
+
             SceneDragMode.SCALE -> {
                 val speed2 = 1f / height
                 val oldScale = selected.scale[localTime]
@@ -528,19 +558,50 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                     if (isControlDown) Vector3f(dx0, dy0, 0f)
                     else Vector3f(delta0)
                 )
+                localDelta.mul(speed2)
                 val base = 2f
                 invalidateDrawing()
                 RemsStudio.incrementalChange("Scale Object") {
-                    selected.scale.addKeyframe(
-                        localTime, Vector3f(
-                            oldScale.x * pow(base, localDelta.x * speed2),
-                            oldScale.y * pow(base, localDelta.y * speed2),
-                            oldScale.z * pow(base, localDelta.z * speed2)
+                    if (selectedRotDist != null) {
+                        // add keyframe to selectedRotDist
+                        val ch = selectedDist.channels[CenterSizeDistribution.SCALE_INDEX]
+                        when (val prev = ch[localTime]) {
+                            is Float -> ch.addKeyframe(localTime, prev * pow(base, delta0))
+                            is Vector2f -> ch.addKeyframe(
+                                localTime, Vector2f(prev).mul(
+                                    pow(base, localDelta.x),
+                                    pow(base, localDelta.y),
+                                )
+                            )
+                            is Vector3f -> ch.addKeyframe(
+                                localTime, Vector3f(prev).mul(
+                                    pow(base, localDelta.x),
+                                    pow(base, localDelta.y),
+                                    pow(base, localDelta.z),
+                                )
+                            )
+                            is Vector4f -> ch.addKeyframe(
+                                localTime, Vector4f(prev).mul(
+                                    pow(base, localDelta.x),
+                                    pow(base, localDelta.y),
+                                    pow(base, localDelta.z),
+                                    1f,
+                                )
+                            )
+                        }
+                    } else {
+                        selected.scale.addKeyframe(
+                            localTime, Vector3f(oldScale).mul(
+                                pow(base, localDelta.x),
+                                pow(base, localDelta.y),
+                                pow(base, localDelta.z)
+                            )
                         )
-                    )
+                    }
                     invalidateUI(false)
                 }
             }
+
             SceneDragMode.ROTATE -> {
                 // todo transform rotation??? quaternions...
                 val centerX = x + width / 2
@@ -558,7 +619,21 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                     else Vector3f(0f, 0f, -deltaDegree)
                 invalidateDrawing()
                 RemsStudio.incrementalChange("Rotate Object") {
-                    selected.rotationYXZ.addKeyframe(localTime, oldRotation + localDelta)
+                    if (selectedRotDist != null) {
+                        // add keyframe to selectedRotDist
+                        val ch = selectedDist.channels[CenterSizeDistribution.ROTATION_INDEX]
+                        when (val prev = ch[localTime]) {
+                            is Float -> ch.addKeyframe(localTime, prev - deltaDegree)
+                            is Vector2f -> ch.addKeyframe(localTime, Vector2f(prev).add(localDelta.x, localDelta.y))
+                            is Vector3f -> ch.addKeyframe(localTime, Vector3f(prev).add(localDelta))
+                            is Vector4f -> {
+                                val localDelta1 = Vector4f(localDelta.x, localDelta.y, localDelta.z, 0f)
+                                ch.addKeyframe(localTime, Vector4f(prev).add(localDelta1))
+                            }
+                        }
+                    } else {
+                        selected.rotationYXZ.addKeyframe(localTime, Vector3f(oldRotation).add(localDelta))
+                    }
                     invalidateUI(false)
                 }
             }
@@ -593,18 +668,19 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
             return
         }
         // move the camera
-        val window = window!!
-        val size = 20f * shiftSlowdown / max(window.width, window.height)
-        val dx0 = dx * size
-        val dy0 = dy * size
-        val scaleFactor = 10f
+        val window = window ?: return
+        val turnSpeed = DefaultConfig["ui.editor.turnSpeed", -400f] * shiftSlowdown / max(window.width, window.height)
+        val dx0 = dx * turnSpeed
+        val dy0 = dy * turnSpeed
         val camera = camera
         val cameraTime = cameraTime
         val oldRotation = camera.rotationYXZ[cameraTime]
         // if(camera.orthographicness[cameraTime] > 0.5f) scaleFactor = -scaleFactor
         invalidateDrawing()
         RemsStudio.incrementalChange("Turn Camera") {
-            camera.putValue(camera.rotationYXZ, oldRotation.add(dy0 * scaleFactor, dx0 * scaleFactor, 0f), false)
+            val newRotation = Vector3f(oldRotation).add(dy0, dx0, 0f)
+            newRotation.x = clamp(newRotation.x, -90f, 90f)
+            camera.putValue(camera.rotationYXZ, newRotation, false)
             invalidateUI(false)
         }
     }
@@ -631,14 +707,17 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                 mode = SceneDragMode.MOVE
                 invalidateDrawing()
             }
+
             "SetMode(SCALE)" -> {
                 mode = SceneDragMode.SCALE
                 invalidateDrawing()
             }
+
             "SetMode(ROTATE)" -> {
                 mode = SceneDragMode.ROTATE
                 invalidateDrawing()
             }
+
             "Cam0", "ResetCamera" -> {
                 val firstCamera = firstCamera
                 if (firstCamera == null) {
@@ -652,6 +731,7 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                 }
                 invalidateDrawing()
             }
+
             "Cam5" -> {// switch between orthographic and perspective
                 camera.putValue(camera.orthographicness, 1f - camera.orthographicness[cameraTime], true)
             }
@@ -666,6 +746,7 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                     Vector3f(0f, -15f, 0f)
                 }
             )
+
             "Cam6" -> rotateCamera(
                 if (isShiftDown) {// right
                     Vector3f(0f, 0f, +15f)
@@ -673,6 +754,7 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                     Vector3f(0f, +15f, 0f)
                 }
             )
+
             "Cam8" -> rotateCamera(Vector3f(-15f, 0f, 0f)) // up
             "Cam2" -> rotateCamera(Vector3f(+15f, 0f, 0f)) // down
             "Cam9" -> rotateCamera(Vector3f(0f, 180f, 0f)) // look at back; rotate by 90 degrees on y axis
@@ -705,10 +787,10 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         }
     }
 
-    override fun onDoubleClick(x: Float, y: Float, button: MouseButton) {
+    override fun onDoubleClick(x: Float, y: Float, button: Key) {
         onInteraction()
         invalidateDrawing()
-        if (button.isLeft) {
+        if (button == Key.BUTTON_LEFT) {
             val xi = x.toInt()
             val yi = y.toInt()
             for (it in controls) {
@@ -727,10 +809,10 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
         }
     }
 
-    override fun onMouseClicked(x: Float, y: Float, button: MouseButton, long: Boolean) {
+    override fun onMouseClicked(x: Float, y: Float, button: Key, long: Boolean) {
         onInteraction()
         invalidateDrawing()
-        if ((parent as? CustomContainer)?.clicked(x, y) != true) {
+        if (button == Key.BUTTON_LEFT && (parent as? CustomContainer)?.clicked(x, y) != true) {
 
             var isProcessed = false
             val xi = x.toInt()
@@ -758,7 +840,7 @@ open class StudioSceneView(style: Style) : PanelList(null, style.getChild("scene
                     invalidateDrawing()
                 }
             }
-        }
+        } else super.onMouseClicked(x, y, button, long)
     }
 
     override fun onPaste(x: Float, y: Float, data: String, type: String) {

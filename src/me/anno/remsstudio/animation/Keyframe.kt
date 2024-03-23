@@ -1,9 +1,9 @@
 package me.anno.remsstudio.animation
 
 import me.anno.animation.Interpolation
-import me.anno.animation.Type
 import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
+import me.anno.ui.input.NumberType
 import me.anno.utils.types.AnyToFloat
 import org.joml.*
 
@@ -28,43 +28,25 @@ class Keyframe<V>(var time: Double, var value: V, var interpolation: Interpolati
         writer.writeInt("mode", interpolation.id)
     }
 
-    override fun readInt(name: String, value: Int) {
-        when (name) {
-            "mode" -> interpolation = Interpolation.getType(value)
-            else -> super.readInt(name, value)
-        }
-    }
-
-    fun setValueUnsafe(value: Any?) {
-        @Suppress("unchecked_cast")
-        this.value = value as V
-    }
-
-    fun getChannelAsFloat(index: Int): Float {
-        return AnyToFloat.getFloat(value!!, index, 0f)
-    }
-
-    override fun readDouble(name: String, value: Double) {
-        when (name) {
-            "time" -> time = value
-            else -> super.readDouble(name, value)
-        }
-    }
-
-    override fun readSomething(name: String, value: Any?) {
-        when (name) {
+    override fun setProperty(name: String, value: Any?) {
+        when(name){
+            "mode" -> interpolation = Interpolation.getType(value as? Int ?: return)
+            "time" -> time = value as? Double ?: return
             "value" -> {
                 @Suppress("unchecked_cast")
                 this.value = value as V
             }
-            else -> super.readSomething(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 
+    fun getChannelAsFloat(index: Int): Float {
+        return AnyToFloat.getFloat(value, index, 0f)
+    }
+
     @Suppress("useless_cast")
-    fun setValue(index: Int, v: Float, type: Type) {
-        @Suppress("unchecked_cast")
-        value = type.clamp(
+    fun setValue(index: Int, v: Float, type: NumberType) {
+        val tmp: Any= type.clamp(
             when (val value = value) {
                 is Int -> v.toInt()
                 is Long -> v.toLong()
@@ -93,8 +75,10 @@ class Keyframe<V>(var time: Double, var value: V, var interpolation: Interpolati
                 }
                 is String -> v as Any
                 else -> throw RuntimeException("todo implement Keyframe.getValue(index) for $value")
-            } as V
+            }
         )
+        @Suppress("unchecked_cast")
+        value = tmp as V
     }
 
     companion object {

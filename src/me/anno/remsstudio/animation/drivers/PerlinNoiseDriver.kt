@@ -1,16 +1,15 @@
 package me.anno.remsstudio.animation.drivers
 
-import me.anno.animation.Type
-import me.anno.io.ISaveable
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
 import me.anno.maths.Maths.clamp
 import me.anno.maths.noise.FullNoise
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.Transform
-import me.anno.studio.Inspectable
-import me.anno.ui.Panel
+import me.anno.ui.Style
+import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
+import me.anno.ui.input.NumberType
 import kotlin.math.min
 
 class PerlinNoiseDriver : AnimationDriver() {
@@ -44,7 +43,7 @@ class PerlinNoiseDriver : AnimationDriver() {
 
     override fun createInspector(
         inspected: List<Inspectable>,
-        list: MutableList<Panel>,
+        list: PanelListY,
         transforms: List<Transform>,
         style: Style,
         getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
@@ -52,10 +51,12 @@ class PerlinNoiseDriver : AnimationDriver() {
         super.createInspector(inspected, list, transforms, style, getGroup)
         val transform = transforms.first()
         val c = inspected.filterIsInstance<PerlinNoiseDriver>()
-        list += transform.vi(inspected, "Octaves", "Levels of Detail", Type.INT_PLUS, octaves, style) {
-            for (x in c) x.octaves = it
-        }
-        list += transform.vi(inspected, "Seed", "", Type.LONG, seed, style) { for (x in c) x.seed = it }
+        list += transform.vi(
+            inspected, "Octaves", "Levels of Detail", NumberType.INT_PLUS, octaves, style
+        ) { it, _ -> for (x in c) x.octaves = it }
+        list += transform.vi(
+            inspected, "Seed", "Base value for randomness", NumberType.LONG, seed, style
+        ) { it, _ -> for (x in c) x.seed = it }
         list += transform.vis(
             c.map { transform }, "Falloff", "Changes high-frequency weight", c.map { it.falloff },
             style
@@ -69,24 +70,12 @@ class PerlinNoiseDriver : AnimationDriver() {
         writer.writeObject(this, "falloff", falloff)
     }
 
-    override fun readInt(name: String, value: Int) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "octaves" -> octaves = clamp(value, 0, MAX_OCTAVES)
-            else -> super.readInt(name, value)
-        }
-    }
-
-    override fun readLong(name: String, value: Long) {
-        when (name) {
-            "seed" -> seed = value
-            else -> super.readLong(name, value)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+            "octaves" -> octaves = clamp(value as? Int ?: return, 0, MAX_OCTAVES)
+            "seed" -> seed = value as? Long ?: return
             "falloff" -> falloff.copyFrom(value)
-            else -> super.readObject(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 

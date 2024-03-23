@@ -1,8 +1,10 @@
 package me.anno.remsstudio.ui.editor.cutting
 
-import me.anno.Engine.gameTime
+import me.anno.Time.gameTime
 import me.anno.cache.CacheData
-import me.anno.cache.instances.VideoCache
+import me.anno.engine.EngineBase.Companion.dragged
+import me.anno.engine.EngineBase.Companion.shiftSlowdown
+import me.anno.engine.EngineBase.Companion.workspace
 import me.anno.gpu.GFX
 import me.anno.gpu.drawing.DrawRectangles.drawRect
 import me.anno.input.Input
@@ -10,9 +12,9 @@ import me.anno.input.Input.isControlDown
 import me.anno.input.Input.keysDown
 import me.anno.input.Input.mouseKeysDown
 import me.anno.input.Input.needsLayoutUpdate
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.io.files.FileReference
-import me.anno.io.text.TextReader
+import me.anno.io.json.saveable.JsonStringReader
 import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.mix
@@ -25,26 +27,24 @@ import me.anno.remsstudio.Selection.selectedTransforms
 import me.anno.remsstudio.animation.Keyframe
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.Video
+import me.anno.remsstudio.ui.MenuUtils.drawTypeInCorner
 import me.anno.remsstudio.ui.StudioFileImporter.addChildFromFile
 import me.anno.remsstudio.ui.editor.TimelinePanel
-import me.anno.studio.StudioBase
-import me.anno.studio.StudioBase.Companion.shiftSlowdown
-import me.anno.studio.StudioBase.Companion.workspace
 import me.anno.ui.Panel
+import me.anno.ui.Style
 import me.anno.ui.base.menu.Menu.openMenu
 import me.anno.ui.base.menu.MenuOption
 import me.anno.ui.dragging.Draggable
 import me.anno.ui.editor.files.FileContentImporter
-import me.anno.ui.style.Style
 import me.anno.utils.Color.white4
 import me.anno.utils.hpc.ProcessingQueue
+import me.anno.video.VideoCache
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
 
     // todo display name?
-    // done: audio, video
 
     // todo select multiple elements to move them around together
     // todo they shouldn't be parent and children, because that would have awkward results...
@@ -76,14 +76,6 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
     var hoveredTransform: Transform? = null
     var hoveredKeyframes: List<Keyframe<*>>? = null
 
-    // performance is very low... fix that...
-    // especially, if it's not changing
-    // two ideas:
-    //  kind of done - render only every x frames + on request
-    // actually done - calculation async
-    // instanced arrays, because we have soo many stripes?
-    // we could optimize simple, not manipulated stripes... -> we optimize with linear approximations
-
     companion object {
         val minAlphaInt = 1
         val minAlpha = minAlphaInt / 255f
@@ -103,8 +95,8 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
             super.getVisualState(),
             if ((isHovered && mouseKeysDown.isNotEmpty()) || isPlaying) visualStateCtr++
             else if (isHovered) {
-                val window = window!!
-                getTransformAt(window.mouseX, window.mouseY)
+                val window = window
+                if (window != null) getTransformAt(window.mouseX, window.mouseY) else null
             } else null
         )
 
@@ -112,6 +104,9 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
         super.onUpdate()
         solution?.keepResourcesLoaded()
     }
+
+    override val canDrawOverBorders: Boolean
+        get() = true
 
     var lastTime = gameTime
 
@@ -125,6 +120,11 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
         drawBackground(x0, y0, x1, y1)
         drawTimeAxis(x0, y0, x1, y1, timelineSlot == 0)
 
+        val parent = uiParent
+        if (parent != null && parent.children.lastOrNull { it is LayerView } == this) {
+            drawTypeInCorner("Cutting", fontColor)
+        }
+
         // val t1 = System.nanoTime()
         val solution = solution
         val needsUpdate = needsUpdate ||
@@ -135,7 +135,6 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
                 mouseKeysDown.isNotEmpty() ||
                 keysDown.isNotEmpty() ||
                 abs(this.lastTime - gameTime) > if (needsLayoutUpdate(GFX.activeWindow!!)) 5e7 else 1e9
-
 
         if (needsUpdate && !computer.isCalculating) {
             lastTime = gameTime
@@ -181,16 +180,15 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
             var ht1 = getTimeAt(window.mouseX + 5f)
             val hx0 = getXAt(ht0)
             val hx1 = getXAt(ht1)
-            val inheritance = transform.listOfInheritance.toList().reversed()
-            inheritance.forEach {
-                ht0 = it.getLocalTime(ht0)
-                ht1 = it.getLocalTime(ht1)
+            for (tr in transform.listOfInheritanceReversed) {
+                ht0 = tr.getLocalTime(ht0)
+                ht1 = tr.getLocalTime(ht1)
             }
             val keyframes = draggedKeyframes ?: color[ht0, ht1]
             hoveredKeyframes = keyframes
             var x = x0 - 1
-            keyframes.forEach {
-                val relativeTime = (it.time - ht0) / (ht1 - ht0)
+            for (kf in keyframes) {
+                val relativeTime = (kf.time - ht0) / (ht1 - ht0)
                 val x2 = mix(hx0, hx1, relativeTime).toInt()
                 if (x2 > x) {
                     drawRect(x2, y0, 1, y1 - y0, accentColor)
@@ -210,15 +208,20 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
             val root = RemsStudio.root
             root.lastLocalTime = root.getLocalTime(globalTime)
             root.updateLocalColor(white4, root.lastLocalTime)
-            for (tr in computer.calculated) {
-                if (tr !== root) {
-                    val p = tr.parent ?: continue
-                    val localTime = tr.getLocalTime(p.lastLocalTime)
-                    tr.lastLocalTime = localTime
-                    tr.updateLocalColor(p.lastLocalColor, localTime)
+            val calculated = computer.calculated
+            if (calculated != null) {
+                for (i in calculated.indices) {
+                    val tr = calculated[i]
+                    if (tr !== root) {
+                        val p = tr.parent ?: continue
+                        val localTime = tr.getLocalTime(p.lastLocalTime)
+                        tr.lastLocalTime = localTime
+                        tr.updateLocalColor(p.lastLocalColor, localTime)
+                    }
                 }
             }
-            drawn.forEach { tr ->
+            for (i in drawn.indices) {
+                val tr = drawn[i]
                 val color = tr.lastLocalColor
                 val alpha = color.w * alphaMultiplier
                 if (alpha >= minAlpha && tr.isVisible(tr.lastLocalTime)) {
@@ -237,8 +240,8 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
     // done move start/end times
     // done highlight the hovered panel?
 
-    override fun onMouseDown(x: Float, y: Float, button: MouseButton) {
-        if (button.isLeft) {
+    override fun onKeyDown(x: Float, y: Float, key: Key) {
+        if (key == Key.BUTTON_LEFT) {
             var draggedTransform = getTransformAt(x, y)
             this.draggedTransform = draggedTransform
             if (draggedTransform != null) {
@@ -261,7 +264,7 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
                     draggedKeyframes = hoveredKeyframes
                 }
             }
-        }
+        } else super.onKeyDown(x, y, key)
     }
 
     override fun onDeleteKey(x: Float, y: Float) {
@@ -282,6 +285,8 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
                         .fold(1.0) { t0, tx -> t0 * tx.timeDilation.value }
                     val dt = shiftSlowdown * dilation * dx * dtHalfLength * 2 / width
                     if (dt != 0.0) {
+                        // todo apply snapping, if possible
+                        // todo only apply for small deltas
                         RemsStudio.incrementalChange("Move Keyframes") {
                             for (kf in draggedKeyframes) {
                                 kf.time += dt
@@ -292,8 +297,6 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
             } else {
                 val thisSlot = this@LayerView.timelineSlot
                 if (dx != 0f) {
-                    //val dilation = transform.listOfInheritance
-                    //    .fold(1.0) { t0, tx -> t0 * tx.timeDilation.value }
                     RemsStudio.incrementalChange("Change Time Dilation / Offset") {
                         if (isControlDown) {
                             // todo scale around the time=0 point?
@@ -322,14 +325,16 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
         } else super.onMouseMoved(x, y, dx, dy)
     }
 
-    override fun onMouseUp(x: Float, y: Float, button: MouseButton) {
-        draggedTransform = null
-        draggedKeyframes = null
+    override fun onKeyUp(x: Float, y: Float, key: Key) {
+        if (key == Key.BUTTON_LEFT || key == Key.BUTTON_RIGHT) {
+            draggedTransform = null
+            draggedKeyframes = null
+        } else super.onKeyUp(x, y, key)
     }
 
-    override fun onMouseClicked(x: Float, y: Float, button: MouseButton, long: Boolean) {
-        when {
-            button.isRight -> {
+    override fun onMouseClicked(x: Float, y: Float, button: Key, long: Boolean) {
+        when (button) {
+            Key.BUTTON_RIGHT -> {
                 val transform = getTransformAt(x, y)
                 if (transform != null) {
                     val localTime = transform.lastLocalTime
@@ -371,9 +376,9 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
     override fun onPaste(x: Float, y: Float, data: String, type: String) {
         if (!data.startsWith("[")) return super.onPaste(x, y, data, type)
         try {
-            val childMaybe = TextReader.read(data, workspace, true).firstOrNull { it is Transform } as? Transform
+            val childMaybe = JsonStringReader.read(data, workspace, true).firstOrNull { it is Transform } as? Transform
             val child = childMaybe ?: return super.onPaste(x, y, data, type)
-            val original = (StudioBase.dragged as? Draggable)?.getOriginal() as? Transform
+            val original = (dragged as? Draggable)?.getOriginal() as? Transform
             RemsStudio.largeChange("Pasted Component / Changed Timeline Slot") {
                 if (original != null) {
                     original.timelineSlot.value = timelineSlot
@@ -392,7 +397,7 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
 
     override fun onPasteFiles(x: Float, y: Float, files: List<FileReference>) {
         val time = getTimeAt(x)
-        files.forEach { file ->
+        for (file in files) {
             addChildFromFile(RemsStudio.root, file, FileContentImporter.SoftLinkMode.ASK, true) {
                 it.timeOffset.value = time
                 it.timelineSlot.value = timelineSlot

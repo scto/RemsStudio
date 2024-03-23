@@ -2,25 +2,28 @@ package me.anno.remsstudio.audio
 
 import me.anno.animation.LoopingState
 import me.anno.audio.AudioPools.SAPool
+import me.anno.audio.AudioSliceKey
 import me.anno.audio.AudioTransfer
 import me.anno.audio.SimpleTransfer
 import me.anno.audio.openal.SoundBuffer
 import me.anno.audio.streams.AudioStreamRaw.Companion.averageSamples
 import me.anno.audio.streams.AudioStreamRaw.Companion.ffmpegSliceSampleDuration
 import me.anno.audio.streams.StereoShortStream
+import me.anno.cache.AsyncCacheData
 import me.anno.cache.CacheData
 import me.anno.cache.CacheSection
-import me.anno.cache.keys.AudioSliceKey
+import me.anno.io.MediaMetadata
 import me.anno.io.files.FileReference
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.mix
 import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Transform
-import me.anno.utils.Sleep.waitUntilDefined
+import me.anno.utils.ShutdownException
+import me.anno.utils.Sleep.waitUntil
 import me.anno.utils.structures.tuples.ShortPair
-import me.anno.video.ffmpeg.FFMPEGMetadata
 import me.anno.video.ffmpeg.FFMPEGStream.Companion.getAudioSequence
 import org.joml.Vector3f
+import org.lwjgl.openal.AL10
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -28,7 +31,7 @@ import kotlin.math.min
 class AudioStreamRaw2(
     val file: FileReference,
     val repeat: LoopingState,
-    val meta: FFMPEGMetadata,
+    val meta: MediaMetadata,
     val is3D: Boolean,
     val source: Audio?,
     val destination: Transform?
@@ -72,8 +75,8 @@ class AudioStreamRaw2(
 
         val ffmpegSliceSampleCount = ffmpegSliceSampleCount
         val sliceIndex = index / ffmpegSliceSampleCount
-        val soundBuffer: SoundBuffer = if (sliceIndex == lastSliceIndex) {
-            lastSoundBuffer!!
+        val soundBuffer: SoundBuffer? = if (sliceIndex == lastSliceIndex) {
+            lastSoundBuffer
         } else {
             val file = file
             val ffmpegSliceSampleDuration = ffmpegSliceSampleDuration
@@ -82,18 +85,17 @@ class AudioStreamRaw2(
             val sliceTime = sliceIndex * ffmpegSliceSampleDuration
             val soundBuffer = AudioCache2.getEntry(key, timeout, false) {
                 val sequence = getAudioSequence(file, sliceTime, ffmpegSliceSampleDuration, ffmpegSampleRate)
-                val buffer = waitUntilDefined(true) { sequence.soundBuffer }
-                CacheData(buffer to sequence.channels)
-            } as CacheData<*>
-            val sv = soundBuffer.value as Pair<*, *>
-            val sb = sv.first as SoundBuffer
-            lastSoundBuffer = sb
+                waitUntil(true) { sequence.hasValue }
+                sequence
+            } as AsyncCacheData<*>
+            val sv = soundBuffer.value as SoundBuffer
+            lastSoundBuffer = sv
             lastSliceIndex = sliceIndex
-            lastChannels = sv.second as Int
-            sb
+            lastChannels = if (sv.format == AL10.AL_FORMAT_MONO16) 1 else 2 // meh...
+            sv
         }
 
-        val data = soundBuffer.data!!
+        val data = soundBuffer?.data ?: return shortPair.set(0, 0)
         val localIndex = (index % ffmpegSliceSampleCount).toInt()
         val arrayIndex0 = localIndex * lastChannels // for stereo
 
@@ -141,7 +143,6 @@ class AudioStreamRaw2(
         val left1 = leftDirGlobal.dot(dirGlobal) * 0.48f + 0.52f
         val right1 = rightDirGlobal.dot(dirGlobal) * 0.48f + 0.52f
         return t0.set(left1 * amplitude, right1 * amplitude)
-
     }
 
     override fun getBuffer(
@@ -213,22 +214,15 @@ class AudioStreamRaw2(
                 index1 = ffmpegSampleRate * local1
 
                 if (transfer0.isZero() && transfer1.isZero()) {
-
                     // there is no audio here -> skip this interval
                     sampleIndex += updateInterval - 1
                     continue
-
                 } else {
-
                     indexI = index0
                     fraction = deltaFraction
-
                 }
-
             } else {
-
                 fraction += deltaFraction
-
             }
 
             val indexJ = mix(index0, index1, fraction)
@@ -248,11 +242,7 @@ class AudioStreamRaw2(
             rightBuffer[sampleIndex] = transfer0.getRight(l0, r0, approxFraction, transfer1).toInt().toShort()
 
             indexI = indexJ
-
         }
-
         return leftBuffer to rightBuffer
-
     }
-
 }

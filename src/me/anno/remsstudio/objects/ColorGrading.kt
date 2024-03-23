@@ -1,16 +1,14 @@
 package me.anno.remsstudio.objects
 
 import me.anno.remsstudio.animation.AnimatedProperty
-import me.anno.studio.Inspectable
 import me.anno.ui.Panel
+import me.anno.ui.Style
 import me.anno.ui.base.text.TextPanel
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
+import me.anno.utils.Color.withAlpha
 
 object ColorGrading {
-
     fun createInspector(
-        inspected: List<Inspectable>,
         c: List<Transform>,
         cgPower: List<AnimatedProperty<*>>,
         cgSaturation: List<AnimatedProperty<*>>,
@@ -31,37 +29,38 @@ object ColorGrading {
                         "3. control the power\n" +
                         "4. (de)saturate", style
             ).apply {
-                textColor = textColor and 0x77ffffff
+                textColor = textColor.withAlpha(0.5f)
                 focusTextColor = textColor
             })
         )
 
         val t = c[0]
         val power = t.vis(
-            inspected, c, "Power", "sRGB, Linear, ...", "cg.power",
-            cgPower, style
+            c, "Power", "sRGB, Linear, ...",
+            "cg.power", "cg.power", cgPower, style
         )
         val slope = t.vis(
-            inspected, c, "Slope", "Intensity or Tint", "cg.slope",
-            cgSlope, style
+            c, "Slope", "Intensity or Tint",
+            "cg.slope", "cg.slope", cgSlope, style
         )
         val offset1 = t.vis(
-            inspected, c, "Plus Offset", "Can be used to color black objects", "cg.offset",
-            cgOffsetAdd, style
+            c, "Plus Offset", "Can be used to color black objects",
+            "cg.offset", "cg.offset", cgOffsetAdd, style
         )
         val offset2 = t.vis(
-            inspected, c, "Minus Offset", "Can be used to color white objects", "cg.offset.sub",
-            cgOffsetSub, style
+            c, "Minus Offset", "Can be used to color white objects",
+            "cg.offset.sub", "cg.offset.sub", cgOffsetSub, style
+        )
+
+        val sat = t.vis(
+            c, "Saturation", "0 = gray scale, 1 = normal, -1 = inverted colors",
+            "cg.saturation", "cg.saturation", cgSaturation, style
         )
 
         group.addChild(img(power))
         group.addChild(img(slope))
         group.addChild(img(offset1))
         group.addChild(img(offset2))
-
-        val satDesc = "0 = gray scale, 1 = normal, -1 = inverted colors"
-        group.addChild(img(t.vis(inspected, c, "Saturation", satDesc, "cg.saturation", cgSaturation, style)))
-
+        group.addChild(img(sat))
     }
-
 }

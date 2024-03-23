@@ -5,24 +5,29 @@ import me.anno.io.base.BaseWriter
 import me.anno.language.translation.Dict
 import me.anno.parser.SimpleExpressionParser.parseDouble
 import me.anno.parser.SimpleExpressionParser.preparse
+import me.anno.remsstudio.objects.Transform
+import me.anno.engine.inspector.Inspectable
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.TextInputML
-import me.anno.ui.style.Style
-import me.anno.utils.structures.lists.CountingList
+import me.anno.ui.Style
 
 class FunctionDriver : AnimationDriver() {
 
     // make them animated? no xD
     var formula = "sin(time*360)"
-    var formulaParts: CountingList? = preparse(formula)
+    var formulaParts: ArrayList<Any>? = preparse(formula)
 
     override fun createInspector(
-        list: PanelListY, style: Style,
+        inspected: List<Inspectable>,
+        list: PanelListY,
+        transforms: List<Transform>,
+        style: Style,
         getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
     ) {
-        super.createInspector(list, style, getGroup)
+        super.createInspector(inspected, list, transforms, style, getGroup)
         list += TextInputML(Dict["Function f(time)", "driver.function"], formula, style)
+            .apply { base.enableSpellcheck = false }
             .addChangeListener { formula = it; updateFormula() }
             .setIsSelectedListener { show(null) }
             .setTooltip(Dict["Example: sin(time*pi)", "driver.function.desc"])
@@ -38,20 +43,20 @@ class FunctionDriver : AnimationDriver() {
         writer.writeString("formula", formula)
     }
 
-    override fun readString(name: String, value: String?) {
-        when (name) {
+    override fun setProperty(name: String, value: Any?) {
+        when(name){
             "formula" -> {
-                formula = value ?: ""
+                formula = value as? String ?: return
                 updateFormula()
             }
-            else -> super.readString(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 
     override fun getValue0(time: Double, keyframeValue: Double, index: Int): Double {
         val formulaParts = formulaParts ?: return 0.0
         return parseDouble(
-            CountingList(formulaParts), mapOf(
+            ArrayList(formulaParts), mapOf(
                 "t" to time, "time" to time,
                 "v" to keyframeValue, "value" to keyframeValue
             )
@@ -64,7 +69,7 @@ class FunctionDriver : AnimationDriver() {
         else Dict["Function f(time)", "driver.function"]
 
     companion object {
-        // could support more, but is useless anyways xD
+        // could support more, but is useless anyway xD
         val maxFormulaDisplayLength get() = DefaultConfig["driver.formula.maxLength", 15]
     }
 

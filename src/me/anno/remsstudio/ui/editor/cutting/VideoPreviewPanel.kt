@@ -3,7 +3,7 @@ package me.anno.remsstudio.ui.editor.cutting
 import me.anno.gpu.drawing.DrawGradients
 import me.anno.remsstudio.objects.Video
 import me.anno.ui.Panel
-import me.anno.ui.style.Style
+import me.anno.ui.Style
 import org.joml.Vector4f
 
 // todo why is this flickering, when moving the mouse???...
@@ -28,7 +28,7 @@ class VideoPreviewPanel(
 
     override fun onDraw(x0: Int, y0: Int, x1: Int, y1: Int) {
         val meta = video.meta ?: return
-        val window = window!!
+        val window = window ?: return
         val time = getTime(window.mouseX)
         val frame = video.getFrameAtLocalTime(time, width1, meta)
         if (frame != null) {

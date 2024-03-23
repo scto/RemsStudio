@@ -1,35 +1,34 @@
 package me.anno.remsstudio.objects.text
 
-import me.anno.animation.Type
 import me.anno.cache.CacheData
-import me.anno.cache.keys.TextSegmentKey
 import me.anno.config.DefaultConfig
+import me.anno.engine.inspector.Inspectable
+import me.anno.fonts.AWTFont
+import me.anno.fonts.Font
 import me.anno.fonts.FontManager
 import me.anno.fonts.FontManager.TextCache
 import me.anno.fonts.PartResult
 import me.anno.fonts.mesh.TextMesh.Companion.DEFAULT_LINE_HEIGHT
 import me.anno.fonts.mesh.TextMeshGroup
-import me.anno.fonts.mesh.TextRepBase
 import me.anno.fonts.signeddistfields.TextSDFGroup
-import me.anno.io.ISaveable
 import me.anno.io.base.BaseWriter
 import me.anno.language.translation.Dict
 import me.anno.maths.Maths.mix
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.GFXTransform
+import me.anno.remsstudio.objects.TextSegmentKey
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.lists.Element
 import me.anno.remsstudio.objects.lists.SplittableElement
 import me.anno.remsstudio.objects.modes.TextRenderMode
-import me.anno.studio.Inspectable
-import me.anno.ui.base.Font
-import me.anno.ui.base.constraints.AxisAlignment
+import me.anno.ui.Style
+import me.anno.ui.base.components.AxisAlignment
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.PropertyInspector.Companion.invalidateUI
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
-import me.anno.utils.strings.StringHelper.smallCaps
+import me.anno.ui.input.NumberType
 import me.anno.utils.structures.tuples.Quad
+import me.anno.utils.types.Strings.smallCaps
 import org.joml.Matrix4fArrayList
 import org.joml.Vector3f
 import org.joml.Vector4f
@@ -44,8 +43,8 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
 
         val DEFAULT_FONT_HEIGHT = 32
 
-        val tabSpaceType = Type.FLOAT_PLUS.withDefaultValue(4f)
-        val lineBreakType = Type.FLOAT_PLUS.withDefaultValue(0f)
+        val tabSpaceType = NumberType.FLOAT_PLUS.withDefaultValue(4f)
+        val lineBreakType = NumberType.FLOAT_PLUS.withDefaultValue(0f)
 
         val textMeshTimeout = 5000L
 
@@ -59,9 +58,9 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
         this.text.set(text)
     }
 
-    override fun getDocumentationURL(): URL? = URL("https://remsstudio.phychi.com/?s=learn/text")
+    override fun getDocumentationURL() = "https://remsstudio.phychi.com/?s=learn/text"
 
-    val backgroundColor = AnimatedProperty.color()
+    val backgroundColor = AnimatedProperty.color(Vector4f(0f))
 
     var text = AnimatedProperty.string()
 
@@ -72,12 +71,12 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
     var blockAlignmentX = AnimatedProperty.alignment()
     var blockAlignmentY = AnimatedProperty.alignment()
 
-    val outlineColor0 = AnimatedProperty.color()
+    val outlineColor0 = AnimatedProperty.color(Vector4f(0f))
     val outlineColor1 = AnimatedProperty.color(Vector4f(0f))
     val outlineColor2 = AnimatedProperty.color(Vector4f(0f))
     val outlineWidths = AnimatedProperty.vec4(Vector4f(0f, 1f, 1f, 1f))
-    val outlineSmoothness = AnimatedProperty(Type.VEC4_PLUS, Vector4f(0f))
-    var outlineDepth = AnimatedProperty.float()
+    val outlineSmoothness = AnimatedProperty(NumberType.VEC4_PLUS, Vector4f(0f))
+    var outlineDepth = AnimatedProperty.float(0f)
 
     val shadowColor = AnimatedProperty.color(Vector4f(0f))
     val shadowOffset = AnimatedProperty.pos(Vector3f(0f, 0f, -0.1f))
@@ -129,7 +128,7 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
 
     open fun splitSegments(text: String): PartResult? {
         if (text.isEmpty()) return null
-        val awtFont = FontManager.getFont(font)
+        val awtFont = FontManager.getFont(font) as AWTFont
         val absoluteLineBreakWidth = lineBreakWidth * font.size * 2f / DEFAULT_LINE_HEIGHT
         val text2 = if (smallCaps) text.smallCaps() else text
         return awtFont.splitParts(text2, font.size, relativeTabSize, relativeCharSpacing, absoluteLineBreakWidth, -1f)
@@ -142,15 +141,15 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
         )
 
     private val shallLoadAsync get() = !forceVariableBuffer
-    fun getTextMesh(key: TextSegmentKey): TextRepBase? {
+    fun getTextMesh(key: TextSegmentKey): TextMeshGroup? {
         return TextCache.getEntry(key, textMeshTimeout, shallLoadAsync) { keyInstance ->
-            TextMeshGroup(keyInstance.font, keyInstance.text, keyInstance.charSpacing, forceVariableBuffer)
-        } as? TextRepBase
+            TextMeshGroup((keyInstance.font as AWTFont).font, keyInstance.text, keyInstance.charSpacing, forceVariableBuffer)
+        } as? TextMeshGroup
     }
 
     fun getSDFTexture(key: TextSegmentKey): TextSDFGroup? {
         val entry = TextCache.getEntry(key to 1, textMeshTimeout, false) { (keyInstance, _) ->
-            TextSDFGroup(keyInstance.font, keyInstance.text, keyInstance.charSpacing)
+            TextSDFGroup((keyInstance.font as AWTFont).font, keyInstance.text, keyInstance.charSpacing.toDouble())
         } ?: return null
         if (entry !is TextSDFGroup) throw RuntimeException("Got different class for $key to 1: ${entry.javaClass.simpleName}")
         return entry
@@ -243,51 +242,33 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
 
     }
 
-    override fun readInt(name: String, value: Int) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "textAlignment" -> textAlignment.set(AxisAlignment.find(value)?.id?.toFloat() ?: return)
-            "blockAlignmentX" -> blockAlignmentX.set(AxisAlignment.find(value)?.id?.toFloat() ?: return)
-            "blockAlignmentY" -> blockAlignmentY.set(AxisAlignment.find(value)?.id?.toFloat() ?: return)
-            "renderingMode" -> renderingMode = TextRenderMode.values().firstOrNull { it.id == value } ?: renderingMode
-            else -> super.readInt(name, value)
-        }
-    }
-
-    override fun readFloat(name: String, value: Float) {
-        when (name) {
-            "relativeTabSize" -> relativeTabSize = value
-            "relativeCharSpacing" -> relativeCharSpacing = value
-            "lineBreakWidth" -> lineBreakWidth = value
-            else -> super.readFloat(name, value)
-        }
-    }
-
-    override fun readString(name: String, value: String?) {
-        when (name) {
-            "text" -> text.set(value ?: "")
-            "font" -> font = font.withName(value ?: "")
-            else -> super.readString(name, value)
-        }
-        invalidate()
-    }
-
-    override fun readBoolean(name: String, value: Boolean) {
-        when (name) {
-            "isBold" -> font = font.withBold(value)
-            "isItalic" -> font = font.withItalic(value)
-            "roundSDFCorners" -> roundSDFCorners = value
-            "smallCaps" -> smallCaps = value
-            else -> super.readBoolean(name, value)
-        }
-        invalidate()
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
-            "text" -> text.copyFrom(value)
-            "textAlignment" -> textAlignment.copyFrom(value)
-            "blockAlignmentX" -> blockAlignmentX.copyFrom(value)
-            "blockAlignmentY" -> blockAlignmentY.copyFrom(value)
+            "textAlignment" -> {
+                if (value is Int) textAlignment.set(AxisAlignment.find(value)?.id?.toFloat() ?: return)
+                else textAlignment.copyFrom(value)
+            }
+            "blockAlignmentX" -> {
+                if (value is Int) blockAlignmentX.set(AxisAlignment.find(value)?.id?.toFloat() ?: return)
+                else blockAlignmentX.copyFrom(value)
+            }
+            "blockAlignmentY" -> {
+                if (value is Int) blockAlignmentY.set(AxisAlignment.find(value)?.id?.toFloat() ?: return)
+                else blockAlignmentY.copyFrom(value)
+            }
+            "renderingMode" -> renderingMode = TextRenderMode.entries.firstOrNull { it.id == value } ?: renderingMode
+            "relativeTabSize" -> relativeTabSize = value as? Float ?: return
+            "relativeCharSpacing" -> relativeCharSpacing = value as? Float ?: return
+            "lineBreakWidth" -> lineBreakWidth = value as? Float ?: return
+            "text" -> {
+                if (value is String) text.set(value as? String ?: "")
+                else text.copyFrom(value)
+            }
+            "font" -> font = font.withName(value as? String ?: "")
+            "isBold" -> font = font.withBold(value == true)
+            "isItalic" -> font = font.withItalic(value == true)
+            "roundSDFCorners" -> roundSDFCorners = value == true
+            "smallCaps" -> smallCaps = value == true
             "shadowOffset" -> shadowOffset.copyFrom(value)
             "shadowColor" -> shadowColor.copyFrom(value)
             "shadowSmoothness" -> shadowSmoothness.copyFrom(value)
@@ -300,8 +281,9 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
             "outlineSmoothness" -> outlineSmoothness.copyFrom(value)
             "startCursor" -> startCursor.copyFrom(value)
             "endCursor" -> endCursor.copyFrom(value)
-            else -> super.readObject(name, value)
+            else -> super.setProperty(name, value)
         }
+        invalidate()
     }
 
     override fun createInspector(
@@ -405,5 +387,4 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
             else -> 0
         }
     }
-
 }

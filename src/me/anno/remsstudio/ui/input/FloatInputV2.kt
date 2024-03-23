@@ -1,18 +1,18 @@
 package me.anno.remsstudio.ui.input
 
-import me.anno.animation.Type
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.ui.input.components.NumberInputComponentV2
+import me.anno.ui.Style
 import me.anno.ui.input.FloatInput
-import me.anno.ui.style.Style
+import me.anno.ui.input.NumberType
 import me.anno.utils.types.AnyToDouble
 import me.anno.utils.types.AnyToFloat
 import org.joml.*
 
 class FloatInputV2(
     style: Style, title: String, visibilityKey: String,
-    type: Type,
+    type: NumberType,
     private val owningProperty: AnimatedProperty<*>
 ) : FloatInput(
     title, visibilityKey, type, style,
@@ -35,8 +35,8 @@ class FloatInputV2(
         }
     }
 
-    override fun onMouseClicked(x: Float, y: Float, button: MouseButton, long: Boolean) {
-        if (!button.isLeft || long) {
+    override fun onMouseClicked(x: Float, y: Float, button: Key, long: Boolean) {
+        if (button != Key.BUTTON_LEFT || long) {
             inputPanel.onMouseClicked(x, y, button, long)
         } else super.onMouseClicked(x, y, button, false)
     }
@@ -63,5 +63,8 @@ class FloatInputV2(
         copyInto(clone)
         return clone
     }
+
+    override val className: String
+        get() = "FloatInputV2"
 
 }

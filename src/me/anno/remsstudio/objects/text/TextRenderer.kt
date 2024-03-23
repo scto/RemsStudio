@@ -1,6 +1,6 @@
 package me.anno.remsstudio.objects.text
 
-import me.anno.cache.keys.TextSegmentKey
+import me.anno.fonts.AWTFont
 import me.anno.fonts.FontManager
 import me.anno.fonts.PartResult
 import me.anno.fonts.mesh.TextMesh
@@ -9,6 +9,7 @@ import me.anno.gpu.GFX
 import me.anno.gpu.drawing.GFXx3D
 import me.anno.remsstudio.Selection
 import me.anno.remsstudio.gpu.GFXx3Dv2
+import me.anno.remsstudio.objects.TextSegmentKey
 import me.anno.remsstudio.objects.attractors.EffectMorphing
 import me.anno.remsstudio.objects.modes.TextRenderMode
 import me.anno.remsstudio.objects.text.Text.Companion.DEFAULT_FONT_HEIGHT
@@ -40,7 +41,7 @@ object TextRenderer {
 
         val (lineSegmentsWithStyle, keys) = element.getSegments(text)
 
-        val font2 = FontManager.getFont(element.font)
+        val font2 = FontManager.getFont(element.font) as AWTFont
         val exampleLayout = font2.exampleLayout
         val scaleX = TextMesh.DEFAULT_LINE_HEIGHT / (exampleLayout.ascent + exampleLayout.descent)
         val scaleY = 1f / (exampleLayout.ascent + exampleLayout.descent)
@@ -205,14 +206,7 @@ object TextRenderer {
             if (localMin < localMax) {
 
                 val key = keys[index]
-
                 val offsetX = (width - part.lineWidth * scaleX) * textAlignment01
-                /* when (textAlignment) {
-                    AxisAlignment.MIN -> 0f
-                    AxisAlignment.CENTER -> (width - part.lineWidth * scaleX) / 2f
-                    AxisAlignment.MAX -> (width - part.lineWidth * scaleX)
-                } */
-
                 val lineDeltaX = dx + part.xPos * scaleX + offsetX
                 val lineDeltaY = dy + part.yPos * scaleY * lineOffset
 
@@ -273,7 +267,7 @@ object TextRenderer {
         sdf2.draw(startIndex, endIndex) { _, sdf, xOffset ->
 
             val texture = sdf?.texture
-            if (texture != null && texture.isCreated) {
+            if (texture != null && texture.isCreated()) {
 
                 val baseScale =
                     TextMesh.DEFAULT_LINE_HEIGHT / sdfResolution / (exampleLayout.ascent + exampleLayout.descent)
@@ -283,10 +277,6 @@ object TextRenderer {
                 val scale = scale0
 
                 val sdfOffset = sdf.offset
-                val offset = Vector2f(
-                    (lineDeltaX + xOffset) * scaleX,
-                    lineDeltaY * scaleY
-                ).add(sdfOffset)
 
                 /**
                  * character- and alignment offset
@@ -301,7 +291,7 @@ object TextRenderer {
                 val sdfX = sdfOffset.x * scaleX
                 val sdfY = sdfOffset.y * scaleY
 
-                offset.set(charAlignOffsetX + sdfX, charAlignOffsetY + sdfY)
+                val offset = Vector2f(charAlignOffsetX + sdfX, charAlignOffsetY + sdfY)
                 scale.set(scaleX, scaleY)
 
                 if (firstTimeDrawing) {
@@ -333,7 +323,7 @@ object TextRenderer {
 
                     firstTimeDrawing = false
 
-                } else GFXx3D.drawOutlinedText(stack, offset, scale, texture, hasUVAttractors)
+                } else GFXx3Dv2.drawOutlinedText(stack, offset, scale, texture, hasUVAttractors)
 
             } else if (sdf?.isValid != true) {
 
@@ -366,11 +356,8 @@ object TextRenderer {
                 GFXx3Dv2.draw3DText(element, time, offset, stack, buffer, color)
                 firstTimeDrawing = false
             } else {
-                GFXx3D.draw3DTextWithOffset(buffer, offset)
+                GFXx3Dv2.draw3DTextWithOffset(buffer, offset)
             }
         }
-
     }
-
-
 }

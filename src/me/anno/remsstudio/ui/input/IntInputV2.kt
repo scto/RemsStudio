@@ -1,17 +1,17 @@
 package me.anno.remsstudio.ui.input
 
-import me.anno.animation.Type
+import me.anno.ui.input.NumberType
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.ui.input.components.NumberInputComponentV2
 import me.anno.ui.input.IntInput
-import me.anno.ui.style.Style
+import me.anno.ui.Style
 import org.joml.Vector2i
 import org.joml.Vector3i
 import org.joml.Vector4i
 
 class IntInputV2(
     title: String, visibilityKey: String,
-    type: Type, private val owningProperty: AnimatedProperty<*>,
+    type: NumberType, private val owningProperty: AnimatedProperty<*>,
     style: Style,
 ) : IntInput(title, visibilityKey, type, style, NumberInputComponentV2(owningProperty, visibilityKey, style)) {
 

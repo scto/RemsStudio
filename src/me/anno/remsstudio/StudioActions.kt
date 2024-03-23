@@ -1,34 +1,80 @@
 package me.anno.remsstudio
 
 import me.anno.Build
+import me.anno.Time
 import me.anno.engine.EngineActions
+import me.anno.engine.EngineBase
+import me.anno.engine.EngineBase.Companion.dragged
+import me.anno.engine.Events.addEvent
 import me.anno.gpu.GFX
 import me.anno.gpu.GFXState
 import me.anno.gpu.debug.DebugGPUStorage
 import me.anno.input.ActionManager
 import me.anno.input.Input
 import me.anno.input.Modifiers
-import me.anno.io.files.FileReference.Companion.getReference
+import me.anno.io.files.Reference.getReference
 import me.anno.io.utils.StringMap
 import me.anno.remsstudio.RemsStudio.hoveredPanel
 import me.anno.remsstudio.objects.modes.TransformVisibility
 import me.anno.remsstudio.ui.editor.TimelinePanel
-import me.anno.studio.StudioBase
-import me.anno.ui.utils.WindowStack.Companion.printLayout
+import me.anno.ui.Panel
+import me.anno.ui.WindowStack.Companion.printLayout
+import me.anno.utils.structures.lists.Lists.any2
+import org.apache.logging.log4j.LogManager
 import kotlin.math.round
 
+@Suppress("MemberVisibilityCanBePrivate")
 object StudioActions {
 
-    fun register() {
+    private val LOGGER = LogManager.getLogger(StudioActions::class)
 
-        fun setEditorTimeDilation(dilation: Double): Boolean {
-            return if (dilation == RemsStudio.editorTimeDilation ||
-                GFX.someWindow?.windowStack?.inFocus0?.isKeyInput() == true) false
-            else {
-                RemsStudio.editorTimeDilation = dilation
-                true
+    fun nextFrame() {
+        RemsStudio.editorTime = (round(RemsStudio.editorTime * RemsStudio.targetFPS) + 1) / RemsStudio.targetFPS
+        RemsStudio.updateAudio()
+    }
+
+    fun previousFrame() {
+        RemsStudio.editorTime = (round(RemsStudio.editorTime * RemsStudio.targetFPS) - 1) / RemsStudio.targetFPS
+        RemsStudio.updateAudio()
+    }
+
+    private fun isInputInFocus(): Boolean {
+        return GFX.windows.any2 { w ->
+            w.windowStack.inFocus.any2 { p ->
+                p.anyInHierarchy { pi ->
+                    pi is Panel && pi.isKeyInput()
+                }
             }
         }
+    }
+
+    private var lastTimeDilationChange = 0L
+    fun setEditorTimeDilation(dilation: Double, allowKeys: Boolean = false): Boolean {
+        val currentTime = Time.lastTimeNanos
+        if (currentTime == lastTimeDilationChange || (!allowKeys && isInputInFocus())) {
+            return false
+        }
+        return if (dilation == RemsStudio.editorTimeDilation) false
+        else {
+            LOGGER.info("Set dilation to $dilation")
+            lastTimeDilationChange = currentTime
+            RemsStudio.editorTimeDilation = dilation
+            RemsStudio.updateAudio()
+            true
+        }
+    }
+
+    fun jumpToStart() {
+        RemsStudio.editorTime = 0.0
+        RemsStudio.updateAudio()
+    }
+
+    fun jumpToEnd() {
+        RemsStudio.editorTime = RemsStudio.project?.targetDuration ?: 10.0
+        RemsStudio.updateAudio()
+    }
+
+    fun register() {
 
         val actions = listOf(
             "Play" to { setEditorTimeDilation(1.0) },
@@ -36,16 +82,14 @@ object StudioActions {
             "PlaySlow" to { setEditorTimeDilation(0.2) },
             "PlayReversed" to { setEditorTimeDilation(-1.0) },
             "PlayReversedSlow" to { setEditorTimeDilation(-0.2) },
-            "ToggleFullscreen" to { GFX.someWindow?.toggleFullscreen(); true },
+            "ToggleFullscreen" to { GFX.someWindow.toggleFullscreen(); true },
             "PrintLayout" to { printLayout();true },
             "NextFrame" to {
-                RemsStudio.editorTime = (round(RemsStudio.editorTime * RemsStudio.targetFPS) + 1) / RemsStudio.targetFPS
-                RemsStudio.updateAudio()
+                nextFrame()
                 true
             },
             "PreviousFrame" to {
-                RemsStudio.editorTime = (round(RemsStudio.editorTime * RemsStudio.targetFPS) - 1) / RemsStudio.targetFPS
-                RemsStudio.updateAudio()
+                previousFrame()
                 true
             },
             "NextStep" to {
@@ -57,22 +101,20 @@ object StudioActions {
                 true
             },
             "Jump2Start" to {
-                RemsStudio.editorTime = 0.0
-                RemsStudio.updateAudio()
+                jumpToStart()
                 true
             },
             "Jump2End" to {
-                RemsStudio.editorTime = RemsStudio.project?.targetDuration ?: 10.0
-                RemsStudio.updateAudio()
+                jumpToEnd()
                 true
             },
             "DragEnd" to {
-                val dragged = StudioBase.dragged
+                val dragged = dragged
                 if (dragged != null) {
 
                     val type = dragged.getContentType()
                     val data = dragged.getContent()
-                    val window = GFX.someWindow!!
+                    val window = GFX.someWindow
 
                     when (type) {
                         "File" -> {
@@ -86,13 +128,13 @@ object StudioActions {
                         }
                     }
 
-                    StudioBase.dragged = null
+                    EngineBase.dragged = null
 
                     true
                 } else false
             },
             "ClearCache" to {
-                StudioBase.instance?.clearAll()
+                RemsStudio.clearAll()
                 true
             },
             "Redo" to {
@@ -106,8 +148,11 @@ object StudioActions {
             "ShowAllObjects" to {
                 if (RemsStudio.root.listOfAll.any { it.visibility == TransformVisibility.VIDEO_ONLY }) {
                     RemsStudio.largeChange("Show all objects") {
-                        RemsStudio.root.listOfAll.filter { it.visibility == TransformVisibility.VIDEO_ONLY }
-                            .forEach { it.visibility = TransformVisibility.VISIBLE }
+                        for (panel in RemsStudio.root.listOfAll) {
+                            if (panel.visibility == TransformVisibility.VIDEO_ONLY) {
+                                panel.visibility = TransformVisibility.VISIBLE
+                            }
+                        }
                     }
                     true
                 } else false
@@ -128,25 +173,25 @@ object StudioActions {
                 } else false
             },
             "Save" to {
-                StudioBase.instance?.save()
+                RemsStudio.save()
                 true
             },
             "Paste" to {
-                Input.paste(GFX.someWindow!!)
+                Input.paste(GFX.someWindow)
                 true
             },
             "Copy" to {
-                Input.copy(GFX.someWindow!!)
+                Input.copy(GFX.someWindow)
                 true
             },
             "Duplicate" to {
-                val window = GFX.someWindow!!
+                val window = GFX.someWindow
                 Input.copy(window)
                 Input.paste(window)
                 true
             },
             "Cut" to {
-                val window = GFX.someWindow!!
+                val window = GFX.someWindow
                 Input.copy(window)
                 Input.empty(window)
                 true
@@ -156,11 +201,11 @@ object StudioActions {
                 true
             },
             "OpenHistory" to {
-                StudioBase.instance?.openHistory()
+                RemsStudio.openHistory()
                 true
             },
             "SelectAll" to {
-                val ws = GFX.someWindow!!.windowStack
+                val ws = GFX.someWindow.windowStack
                 val inFocus0 = ws.inFocus0
                 inFocus0?.onSelectAll(ws.mouseX, ws.mouseY)
                 true
@@ -170,7 +215,7 @@ object StudioActions {
                 true
             },
             "ResetOpenGLSession" to {
-                StudioBase.addEvent { GFXState.newSession() }
+                addEvent { GFXState.newSession() }
                 true
             }
         )
@@ -231,9 +276,9 @@ object StudioActions {
         register["global.h.t", "ToggleHideObject"]
 
         // press instead of down for the delay
-        register["ColorPaletteEntry.left.press", "DragStart"]
-        register["SceneTab.left.press", "DragStart"]
-        register["FileEntry.left.press", "DragStart"]
+        register["ColorPaletteEntry.left.drag", "DragStart"]
+        register["SceneTab.left.drag", "DragStart"]
+        register["FileEntry.left.drag", "DragStart"]
         register["FileEntry.left.double", "Enter|Open"]
         register["FileEntry.f2.down", "Rename"]
         register["FileEntry.right.down", "OpenOptions"]
@@ -247,18 +292,18 @@ object StudioActions {
         register["StudioFileExplorer.mouseBackward.down", "Back"]
         register["StudioFileExplorer.mouseForward.down", "Forward"]
         register["FileExplorerEntry.left.double", "Enter"]
-        register["TreeViewPanel.left.press", "DragStart"]
+        register["TreeViewPanel.left.drag", "DragStart"]
         register["TreeViewPanel.f2.down", "Rename"]
-        register["StackPanel.left.press", "DragStart"]
+        register["StackPanel.left.drag", "DragStart"]
 
         register["HSVBox.left.down", "SelectColor"]
-        register["HSVBox.left.press-unsafe", "SelectColor"]
+        register["HSVBox.left.press", "SelectColor"]
         register["AlphaBar.left.down", "SelectColor"]
-        register["AlphaBar.left.press-unsafe", "SelectColor"]
+        register["AlphaBar.left.press", "SelectColor"]
         register["HueBar.left.down", "SelectColor"]
-        register["HueBar.left.press-unsafe", "SelectColor"]
+        register["HueBar.left.press", "SelectColor"]
         register["HSVBoxMain.left.down", "SelectColor"]
-        register["HSVBoxMain.left.press-unsafe", "SelectColor"]
+        register["HSVBoxMain.left.press", "SelectColor"]
 
         register["StudioSceneView.right.p", "Turn"]
         register["StudioSceneView.left.p", "MoveObject"]

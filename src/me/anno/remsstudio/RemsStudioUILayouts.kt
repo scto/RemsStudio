@@ -1,11 +1,11 @@
 package me.anno.remsstudio
 
 import me.anno.config.DefaultConfig
+import me.anno.engine.projects.Projects.getRecentProjects
 import me.anno.extensions.ExtensionLoader
 import me.anno.gpu.GFX
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.io.config.ConfigBasics
-import me.anno.io.files.InvalidRef
 import me.anno.language.translation.Dict
 import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio.defaultWindowStack
@@ -18,17 +18,15 @@ import me.anno.remsstudio.Rendering.renderPart
 import me.anno.remsstudio.Rendering.renderSetPercent
 import me.anno.remsstudio.Selection.selectTransform
 import me.anno.remsstudio.Selection.selectedTransforms
-import me.anno.remsstudio.ui.StudioFileExplorer
-import me.anno.remsstudio.ui.StudioTreeView
+import me.anno.remsstudio.ui.*
 import me.anno.remsstudio.ui.StudioTreeView.Companion.openAddMenu
-import me.anno.remsstudio.ui.StudioUITypeLibrary
 import me.anno.remsstudio.ui.editor.cutting.LayerViewContainer
 import me.anno.remsstudio.ui.graphs.GraphEditor
 import me.anno.remsstudio.ui.scene.StudioSceneView
 import me.anno.remsstudio.ui.sceneTabs.SceneTabs
-import me.anno.studio.Projects.getRecentProjects
-import me.anno.studio.StudioBase.Companion.instance
 import me.anno.ui.Panel
+import me.anno.ui.Style
+import me.anno.ui.WindowStack.Companion.createReloadWindow
 import me.anno.ui.base.SpacerPanel
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.base.menu.Menu.askName
@@ -40,15 +38,12 @@ import me.anno.ui.custom.CustomContainer
 import me.anno.ui.custom.CustomList
 import me.anno.ui.debug.ConsoleOutputPanel.Companion.createConsoleWithStats
 import me.anno.ui.editor.OptionBar
-import me.anno.ui.editor.PropertyInspector
 import me.anno.ui.editor.WelcomeUI
 import me.anno.ui.editor.config.ConfigPanel
-import me.anno.ui.editor.files.toAllowedFilename
-import me.anno.ui.style.Style
-import me.anno.ui.utils.WindowStack.Companion.createReloadWindow
-import me.anno.utils.files.OpenInBrowser.openInBrowser
+import me.anno.ui.editor.files.FileNames.toAllowedFilename
+import me.anno.utils.files.OpenFileExternally.openInBrowser
+import me.anno.utils.files.OpenFileExternally.openInExplorer
 import org.apache.logging.log4j.LogManager
-import java.net.URL
 
 object RemsStudioUILayouts {
 
@@ -58,10 +53,10 @@ object RemsStudioUILayouts {
 
     fun createEditorUI(welcomeUI: WelcomeUI, loadUI: Boolean = true) {
 
+        // todo Alt + Letter = pseudo-click on menu
+
         val style = DefaultConfig.style
-
         val ui = PanelListY(style)
-
         val options = OptionBar(style)
 
         val configTitle = Dict["Config", "ui.top.config"]
@@ -91,14 +86,17 @@ object RemsStudioUILayouts {
             windowStack.push(window)
         }
 
+        options.addAction(configTitle, Dict["BPM Snap Settings", "ui.top.config.bpmSnapping"]) {
+            selectTransform(BPMSnapping)
+        }
+
         options.addAction(configTitle, Dict["Language", "ui.top.config.language"]) {
-            Dict.selectLanguage(style).onMouseClicked(windowStack.mouseX, windowStack.mouseY, MouseButton.LEFT, false)
+            Dict.selectLanguage(style).onMouseClicked(windowStack.mouseX, windowStack.mouseY, Key.BUTTON_LEFT, false)
         }
 
         options.addAction(configTitle, Dict["Open Config Folder", "ui.top.config.openFolder"]) {
-            ConfigBasics.configFolder.openInExplorer()
+            openInExplorer(ConfigBasics.configFolder)
         }
-
 
         /**
          * Project options
@@ -108,14 +106,13 @@ object RemsStudioUILayouts {
             openMenuByPanels(windowStack, NameDesc("Change Project Language"), listOf(panel))
         }
         options.addAction(projectTitle, Dict["Save", "ui.top.project.save"]) {
-            instance?.save()
+            RemsStudio.save()
             LOGGER.info("Saved the project")
         }
         options.addAction(projectTitle, Dict["Load", "ui.top.project.load"]) {
             val name = NameDesc("Load Project", "", "ui.loadProject")
-            val menuStyle = style.getChild("menu")
-            val openRecentProject = welcomeUI.createRecentProjectsUI(RemsStudio, menuStyle, getRecentProjects())
-            val createNewProject = welcomeUI.createNewProjectUI(RemsStudio, menuStyle)
+            val openRecentProject = welcomeUI.createRecentProjectsUI(RemsStudio, style, getRecentProjects())
+            val createNewProject = welcomeUI.createNewProjectUI(RemsStudio, style)
             openMenuByPanels(windowStack, name, listOf(openRecentProject, createNewProject))
         }
 
@@ -134,7 +131,7 @@ object RemsStudioUILayouts {
         /**
          * Rendering
          * */
-        val callback: () -> Unit = { GFX.someWindow?.requestAttentionMaybe() }
+        val callback: () -> Unit = { GFX.someWindow.requestAttentionMaybe() }
         options.addAction(renderTitle, Dict["Settings", "ui.top.render.settings"]) { selectTransform(RenderSettings) }
         options.addAction(renderTitle, Dict["Set%", "ui.top.render.topPercent"]) { renderSetPercent(true, callback) }
         options.addAction(renderTitle, Dict["Full", "ui.top.render.full"]) { renderPart(1, true, callback) }
@@ -143,7 +140,7 @@ object RemsStudioUILayouts {
         options.addAction(
             renderTitle,
             Dict["Override Audio", "ui.top.render.overrideAudio"]
-        ) { overrideAudio(InvalidRef, true, callback) }
+        ) { overrideAudio(callback) }
         options.addAction(renderTitle, Dict["Audio Only", "ui.top.audioOnly"]) { renderAudio(true, callback) }
 
         /**
@@ -180,7 +177,6 @@ object RemsStudioUILayouts {
         }
         options.addAction(windowTitle, Dict["Save Layout", "ui.top.saveUILayout"]) {
             askName(windowStack, NameDesc("Layout Name"), "ui", NameDesc("Save"), {
-                // todo ask-for-file-name-menu
                 val trimmed = it.trim()
                 if (trimmed.toAllowedFilename() == trimmed) {
                     if (Project.getUILayoutFile(trimmed).exists) {
@@ -208,7 +204,7 @@ object RemsStudioUILayouts {
          * Help
          * */
         options.addAction(helpTitle, "Tutorials") {
-            URL("https://remsstudio.phychi.com/?s=learn").openInBrowser()
+            openInBrowser("https://remsstudio.phychi.com/?s=learn")
         }
         options.addAction(helpTitle, "Version: $versionName") {}
         options.addAction(helpTitle, "About") {
@@ -225,7 +221,7 @@ object RemsStudioUILayouts {
         ui += SceneTabs
         ui += SpacerPanel(0, 1, style)
 
-        val project = project!!
+        val project = project ?: throw IllegalStateException("Missing project")
         if (loadUI) project.loadInitialUI()
 
         ui += project.mainUI
@@ -242,29 +238,27 @@ object RemsStudioUILayouts {
         val customUI = CustomList(true, style)
         customUI.weight = 10f
 
-        val animationWindow = CustomList(false, style)
-        customUI.add(animationWindow, 2f)
+        val topHalf = CustomList(false, style)
+        customUI.add(topHalf, 2f)
 
         val library = StudioUITypeLibrary()
 
-        val treeFiles = CustomList(true, style)
-        treeFiles += CustomContainer(StudioTreeView(style), library, style)
-        treeFiles += CustomContainer(StudioFileExplorer(project?.scenes, style), library, style)
-        animationWindow.add(CustomContainer(treeFiles, library, style), 0.5f)
-        animationWindow.add(CustomContainer(StudioSceneView(style), library, style), 2f)
-        animationWindow.add(
-            CustomContainer(
-                PropertyInspector({ Selection.selectedInspectables }, style),
-                library, style
-            ), 0.5f
-        )
-        animationWindow.weight = 1f
+        val topLeft = CustomList(true, style)
+        topLeft += CustomContainer(StudioTreeView(style), library, style)
+        topLeft += CustomContainer(StudioFileExplorer(project?.scenes, style), library, style)
+        topHalf.add(CustomContainer(topLeft, library, style), 0.5f)
 
-        val timeline = GraphEditor(style)
-        customUI.add(CustomContainer(timeline, library, style), 0.25f)
+        topHalf.add(CustomContainer(StudioSceneView(style), library, style), 2f)
 
-        val linear = LayerViewContainer(style)
-        customUI.add(CustomContainer(linear, library, style), 0.25f)
+        val propertiesAndTime = CustomList(true, style)
+        val properties = StudioPropertyInspector({ Selection.selectedInspectables }, style)
+        propertiesAndTime.add(CustomContainer(properties, library, style), 0.95f)
+        propertiesAndTime.add(CustomContainer(TimeControlsPanel(style), library, style), 0.05f)
+        topHalf.add(propertiesAndTime, 0.5f)
+        topHalf.weight = 1f
+
+        customUI.add(CustomContainer(GraphEditor(style), library, style), 0.25f)
+        customUI.add(CustomContainer(LayerViewContainer(style), library, style), 0.25f)
 
         return customUI
 

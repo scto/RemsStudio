@@ -1,20 +1,20 @@
 package me.anno.remsstudio
 
+import me.anno.engine.Events.addEvent
 import me.anno.installer.Installer
-import me.anno.io.files.FileReference.Companion.getReference
 import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio.defaultWindowStack
-import me.anno.studio.StudioBase.Companion.addEvent
 import me.anno.ui.base.menu.Menu
 import me.anno.ui.base.menu.MenuOption
 import me.anno.utils.OS
-import me.anno.utils.files.OpenInBrowser.openInBrowser
+import me.anno.utils.files.OpenFileExternally.openInBrowser
+import me.anno.utils.files.OpenFileExternally.openInExplorer
 import org.apache.logging.log4j.LogManager
 import java.io.IOException
-import java.net.URI
 import java.net.URL
 import kotlin.concurrent.thread
 
+@Suppress("unused")
 object CheckVersion {
 
     private fun formatVersion(version: Int): String {
@@ -33,7 +33,7 @@ object CheckVersion {
             if (latestVersion > -1) {
                 if (latestVersion > RemsStudio.versionNumber) {
                     val name = "RemsStudio ${formatVersion(latestVersion)}.${if (OS.isWindows) "exe" else "jar"}"
-                    val dst = getReference(OS.documents, name)
+                    val dst = OS.documents.getChild(name)
                     if (!dst.exists) {
                         LOGGER.info("Found newer version: $name")
                         // wait for everything to be loaded xD
@@ -41,11 +41,10 @@ object CheckVersion {
                             Menu.openMenu(windowStack,
                                 NameDesc("New Version Available!", "", "ui.newVersion"), listOf(
                                     MenuOption(NameDesc("See Download Options", "", "ui.newVersion.openLink")) {
-                                        URI("https", "remsstudio.phychi.com", "/", "s=download").toURL().openInBrowser()
+                                        openInBrowser("https://remsstudio.phychi.com/s=download")
                                     },
                                     MenuOption(NameDesc("Download with Browser", "", "ui.newVersion.openLink")) {
-                                        URI("https", "remsstudio.phychi.com", "/download/$name", "").toURL()
-                                            .openInBrowser()
+                                        openInBrowser("https://remsstudio.phychi.com/download/$name")
                                     },
                                     MenuOption(NameDesc("Download to ~/Documents", "", "ui.newVersion.download")) {
                                         // download the file
@@ -56,10 +55,9 @@ object CheckVersion {
                                                     NameDesc("Downloaded file to %1", "", "")
                                                         .with("%1", dst.toString())
                                                 ) {
-                                                    dst.openInExplorer()
+                                                    openInExplorer(dst)
                                                 }
-                                            )
-                                            )
+                                            ))
                                         }
                                     }
                                 )
@@ -71,9 +69,7 @@ object CheckVersion {
                 } else {
                     LOGGER.info(
                         "The newest version is in use: ${RemsStudio.versionName} (Server: ${
-                            formatVersion(
-                                latestVersion
-                            )
+                            formatVersion(latestVersion)
                         })"
                     )
                 }
@@ -107,5 +103,4 @@ object CheckVersion {
     }
 
     private val LOGGER = LogManager.getLogger(CheckVersion::class)
-
 }

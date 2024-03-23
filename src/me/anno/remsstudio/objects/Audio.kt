@@ -1,22 +1,21 @@
 package me.anno.remsstudio.objects
 
 import me.anno.animation.LoopingState
-import me.anno.audio.openal.AudioTasks
-import me.anno.io.ISaveable
+import me.anno.audio.openal.AudioTasks.addAudioTask
+import me.anno.engine.inspector.Inspectable
+import me.anno.io.MediaMetadata.Companion.getMeta
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.audio.AudioFileStreamOpenAL2
 import me.anno.remsstudio.audio.effects.SoundPipeline
-import me.anno.studio.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
 import me.anno.utils.files.LocalFile.toGlobalFile
 import me.anno.utils.structures.ValueWithDefault.Companion.writeMaybe
 import me.anno.utils.structures.ValueWithDefaultFunc
-import me.anno.video.ffmpeg.FFMPEGMetadata.Companion.getMeta
 import org.joml.Matrix4fArrayList
 import org.joml.Vector4f
 
@@ -32,6 +31,8 @@ abstract class Audio(var file: FileReference = InvalidRef, parent: Transform? = 
         if (file.lcExtension == "gif") LoopingState.PLAY_LOOP
         else LoopingState.PLAY_ONCE
     }
+
+    var stayVisibleAtEnd = false
 
     var is3D = false
 
@@ -64,7 +65,7 @@ abstract class Audio(var file: FileReference = InvalidRef, parent: Transform? = 
 
     override fun onDestroy() {
         super.onDestroy()
-        AudioTasks.addTask("stop", 1) { stopPlayback() }
+        addAudioTask("stop", 1) { stopPlayback() }
     }
 
     // we need a flag, whether we draw in editor mode or not -> GFX.isFinalRendering
@@ -106,32 +107,14 @@ abstract class Audio(var file: FileReference = InvalidRef, parent: Transform? = 
         writer.writeMaybe(this, "isLooping", isLooping)
     }
 
-    override fun readInt(name: String, value: Int) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "isLooping" -> isLooping.value = LoopingState.getState(value)
-            else -> super.readInt(name, value)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+            "isLooping" -> isLooping.value = LoopingState.getState(value as? Int ?: return)
             "amplitude" -> amplitude.copyFrom(value)
             "effects" -> pipeline = value as? SoundPipeline ?: return
-            else -> super.readObject(name, value)
-        }
-    }
-
-    override fun readString(name: String, value: String?) {
-        when (name) {
-            "src", "file", "path" -> file = value?.toGlobalFile() ?: InvalidRef
-            else -> super.readString(name, value)
-        }
-    }
-
-    override fun readFile(name: String, value: FileReference) {
-        when (name) {
-            "src", "file", "path" -> file = value
-            else -> super.readFile(name, value)
+            "src", "file", "path" -> file =
+                (value as? String)?.toGlobalFile() ?: (value as? FileReference) ?: InvalidRef
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -139,5 +122,4 @@ abstract class Audio(var file: FileReference = InvalidRef, parent: Transform? = 
         super.onReadingEnded()
         needsUpdate = true
     }
-
 }

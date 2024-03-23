@@ -1,11 +1,10 @@
 package me.anno.remsstudio.objects
 
-import me.anno.animation.Type
 import me.anno.config.DefaultConfig
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX
 import me.anno.gpu.drawing.Perspective.perspective2
 import me.anno.gpu.pipeline.Sorting
-import me.anno.io.ISaveable
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
@@ -17,12 +16,11 @@ import me.anno.remsstudio.RemsStudio.currentlyDrawnCamera
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.effects.ToneMappers
 import me.anno.remsstudio.objects.models.CameraModel.drawCamera
-import me.anno.studio.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.buttons.TextButton
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
-import me.anno.utils.Color.white4
+import me.anno.ui.input.NumberType
 import me.anno.utils.files.LocalFile.toGlobalFile
 import me.anno.utils.pooling.JomlPools
 import me.anno.utils.types.Casting.castToFloat2
@@ -44,22 +42,22 @@ class Camera(parent: Transform? = null) : Transform(parent) {
     val nearZ = AnimatedProperty.floatPlus(0.001f)
     val farZ = AnimatedProperty.floatPlus(1000f)
     val fovYDegrees = AnimatedProperty(fovType, 90f)
-    val chromaticAberration = AnimatedProperty.floatPlus()
-    val chromaticOffset = AnimatedProperty.vec2()
-    val chromaticAngle = AnimatedProperty.float()
-    val distortion = AnimatedProperty.vec3()
-    val distortionOffset = AnimatedProperty.vec2()
-    val orthographicness = AnimatedProperty.float01()
-    val vignetteStrength = AnimatedProperty.floatPlus()
+    val chromaticAberration = AnimatedProperty.floatPlus(0f)
+    val chromaticOffset = AnimatedProperty.vec2(Vector2f(0f))
+    val chromaticAngle = AnimatedProperty.float(0f)
+    val distortion = AnimatedProperty.vec3(Vector3f(0f))
+    val distortionOffset = AnimatedProperty.vec2(Vector2f(0f))
+    val orthographicness = AnimatedProperty.float01(0f)
+    val vignetteStrength = AnimatedProperty.floatPlus(0f)
     val vignetteColor = AnimatedProperty.color3(Vector3f(0f, 0f, 0f))
 
     val orbitRadius = AnimatedProperty.floatPlus(1f)
 
     val cgOffsetAdd = AnimatedProperty.color3(Vector3f())
     val cgOffsetSub = AnimatedProperty.color3(Vector3f())
-    val cgSlope = AnimatedProperty.color(white4)
-    val cgPower = AnimatedProperty.color(white4)
-    val cgSaturation = AnimatedProperty.float(1f) // only allow +? only 01?
+    val cgSlope = AnimatedProperty.color(Vector4f(1f))
+    val cgPower = AnimatedProperty.color(Vector4f(1f))
+    val cgSaturation = AnimatedProperty.float(1f)
 
     val bloomSize = AnimatedProperty.floatPlus(0.05f)
     val bloomIntensity = AnimatedProperty.floatPlus(0f)
@@ -93,40 +91,41 @@ class Camera(parent: Transform? = null) : Transform(parent) {
 
         val transform = getGroup("Transform", "", "transform")
         transform += vis(
-            inspected, c, "Orbit Radius", "Orbiting Distance", "camera.orbitDis",
-            c.map { it.orbitRadius }, style
-        )
-        transform += vis(
-            inspected, c, "Background Color", "Clearing color for the screen", "camera.backgroundColor",
-            c.map { it.backgroundColor }, style
+            c, "Orbit Radius", "Orbiting Distance", "camera.orbitDis",
+            "camera.orbitDis", c.map { it.orbitRadius },
+            style
         )
 
 
         val cam = getGroup("Projection", "How rays of light are mapped to the screen", "projection")
         cam += vis(
-            inspected, c, "FOV", "Field Of View, in degrees, vertical", "camera.fov",
-            c.map { it.fovYDegrees }, style
+            c, "FOV", "Field Of View, in degrees, vertical", "camera.fov",
+            "camera.fov", c.map { it.fovYDegrees },
+            style
         )
         cam += vis(
-            inspected, c, "Perspective - Orthographic",
-            "Sets back the camera", "camera.orthographicness",
-            c.map { it.orthographicness }, style
+            c, "Perspective - Orthographic", "Sets back the camera", "camera.orthographicness",
+            "camera.orthographicness", c.map { it.orthographicness },
+            style
         )
+
 
         val depth = getGroup("Depth", "Z-axis related settings; from camera perspective", "depth")
         depth += vis(
-            inspected, c, "Near Z", "Closest Visible Distance", "camera.depth.near",
-            c.map { it.nearZ }, style
+            c, "Near Z", "Closest Visible Distance", "camera.depth.near",
+            "camera.depth.near", c.map { it.nearZ },
+            style
         )
         depth += vis(
-            inspected, c, "Far Z", "Farthest Visible Distance", "camera.depth.far",
-            c.map { it.farZ }, style
+            c, "Far Z", "Farthest Visible Distance", "camera.depth.far",
+            "camera.depth.far", c.map { it.farZ },
+            style
         )
         depth += vi(
             inspected, "Use Depth",
             "Causes Z-Fighting, but allows 3D", "camera.depth.enabled",
             null, useDepth, style
-        ) { for (x in c) x.useDepth = it }
+        ) { it, _ -> for (x in c) x.useDepth = it }
         /*depth += vi(
             "Order By Z", "Transparent objects need to be sorted to appear correctly", null, order, style
         ) { order = it }*/
@@ -134,16 +133,18 @@ class Camera(parent: Transform? = null) : Transform(parent) {
 
         val chroma = getGroup("Chromatic Aberration", "Effect occurring in cheap lenses", "chroma")
         chroma += vis(
-            inspected, c, "Strength", "How large the effect is", "camera.chromaStrength",
-            c.map { it.chromaticAberration }, style
+            c, "Strength", "How large the effect is", "camera.chromaStrength",
+            "camera.chromaStrength", c.map { it.chromaticAberration },
+            style
         )
         chroma += vis(
-            inspected, c, "Offset", "Offset", "camera.chromaOffset",
-            c.map { it.chromaticOffset }, style
+            c, "Offset", "Offset", "camera.chromaOffset", c.map { it.chromaticOffset },
+            style
         )
         chroma += vis(
-            inspected, c, "Rotation", "Rotation/angle in Degrees", "camera.chromaRotation",
-            c.map { it.chromaticAngle }, style
+            c, "Rotation", "Rotation/angle in Degrees", "camera.chromaRotation",
+            "camera.chromaRotation", c.map { it.chromaticAngle },
+            style
         )
 
 
@@ -160,44 +161,60 @@ class Camera(parent: Transform? = null) : Transform(parent) {
 
         val vignette = getGroup("Vignette", "Darkens/colors the border", "vignette")
         vignette += vis(
-            inspected, c, "Vignette Color", "Color of border", "vignette.color",
-            c.map { it.vignetteColor }, style
+            c, "Vignette Color", "Color of border", "vignette.color",
+            "vignette.color", c.map { it.vignetteColor },
+            style
         )
         vignette += vis(
-            inspected, c, "Vignette Strength", "Strength of colored border", "vignette.strength",
-            c.map { it.vignetteStrength }, style
+            c, "Vignette Strength", "Strength of colored border", "vignette.strength",
+            "vignette.strength", c.map { it.vignetteStrength },
+            style
         )
 
 
         val bloom = getGroup("Bloom", "Adds a light halo around bright objects", "bloom")
         bloom += vis(
-            inspected, c, "Intensity", "Brightness of effect, 0 = off", "bloom.intensity",
-            c.map { it.bloomIntensity }, style
+            c, "Intensity", "Brightness of effect, 0 = off", "bloom.intensity",
+            "bloom.intensity", c.map { it.bloomIntensity },
+            style
         )
         bloom += vis(
-            inspected, c, "Effect Size", "How much it is blurred", "bloom.size",
-            c.map { it.bloomSize }, style
+            c, "Effect Size", "How much it is blurred", "bloom.size",
+            "bloom.size", c.map { it.bloomSize },
+            style
         )
         bloom += vis(
-            inspected, c, "Threshold", "Minimum brightness", "bloom.threshold",
-            c.map { it.bloomThreshold }, style
+            c, "Threshold", "Minimum brightness", "bloom.threshold",
+            "bloom.threshold", c.map { it.bloomThreshold },
+            style
         )
 
 
         val color = getGroup("Color", "Tint and Tonemapping", "color")
+        color += vis(
+            c,
+            "Background Color",
+            "Clearing color for the screen",
+            "camera.backgroundColor",
+            "camera.backgroundColor",
+            c.map { it.backgroundColor },
+            style
+        )
         color += vi(
             inspected, "Tone Mapping",
             "Maps large ranges of brightnesses (e.g. HDR) to monitor color space", "camera.toneMapping",
+            "camera.toneMapping",
             null, toneMapping, style
-        ) { for (x in c) x.toneMapping = it }
+        ) { it, _ -> for (x in c) x.toneMapping = it }
         color += vi(
             inspected, "Look Up Table",
-            "LUT, Look Up Table for colors, formatted like in UE4", "camera.lut", null, lut, style
-        ) { for (x in c) x.lut = it }
+            "LUT, Look Up Table for colors, formatted like in UE4", "camera.lut",
+            "camera.toneMapping", null, lut, style
+        ) { it, _ -> for (x in c) x.lut = it }
 
         ColorGrading.createInspector(
-            inspected, c, c.map { it.cgPower }, c.map { it.cgSaturation }, c.map { it.cgSlope },
-            c.map { it.cgOffsetAdd }, c.map { it.cgOffsetSub }, { it }, getGroup, style
+            c, c.map { it.cgPower }, c.map { it.cgSaturation }, c.map { it.cgSlope }, c.map { it.cgOffsetAdd },
+            c.map { it.cgOffsetSub }, { it }, getGroup, style
         )
 
         val editor = getGroup("Editor", "Settings, which only effect editing", "editor")
@@ -205,7 +222,7 @@ class Camera(parent: Transform? = null) : Transform(parent) {
             inspected, "Only Show Target",
             "Forces the viewport to have the correct aspect ratio",
             null, onlyShowTarget, style
-        ) { for (x in c) x.onlyShowTarget = it }
+        ) { it, _ -> for (x in c) x.onlyShowTarget = it }
 
         val ops = getGroup("Operations", "Actions", "operations")
         ops += TextButton("Reset Transform", "If accidentally moved", "obj.camera.resetTransform", false, style)
@@ -291,16 +308,10 @@ class Camera(parent: Transform? = null) : Transform(parent) {
         writer.writeObject(this, "backgroundColor", backgroundColor)
     }
 
-    override fun readBoolean(name: String, value: Boolean) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "onlyShowTarget" -> onlyShowTarget = value
-            "useDepth" -> useDepth = value
-            else -> super.readBoolean(name, value)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+            "onlyShowTarget" -> onlyShowTarget = value == true
+            "useDepth" -> useDepth = value == true
             "orbitRadius" -> orbitRadius.copyFrom(value)
             "nearZ" -> nearZ.copyFrom(value)
             "farZ" -> farZ.copyFrom(value)
@@ -321,28 +332,9 @@ class Camera(parent: Transform? = null) : Transform(parent) {
             "cgSlope" -> cgSlope.copyFrom(value)
             "cgPower" -> cgPower.copyFrom(value)
             "backgroundColor" -> backgroundColor.copyFrom(value)
-            else -> super.readObject(name, value)
-        }
-    }
-
-    override fun readString(name: String, value: String?) {
-        when (name) {
-            "lut" -> lut = value?.toGlobalFile() ?: InvalidRef
-            else -> super.readString(name, value)
-        }
-    }
-
-    override fun readFile(name: String, value: FileReference) {
-        when (name) {
-            "lut" -> lut = value
-            else -> super.readFile(name, value)
-        }
-    }
-
-    override fun readInt(name: String, value: Int) {
-        when (name) {
-            "toneMapping" -> toneMapping = ToneMappers.values().firstOrNull { it.id == value } ?: toneMapping
-            else -> super.readInt(name, value)
+            "lut" -> lut = (value as? String)?.toGlobalFile() ?: (value as? FileReference) ?: InvalidRef
+            "toneMapping" -> toneMapping = ToneMappers.entries.firstOrNull { it.id == value } ?: toneMapping
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -382,10 +374,9 @@ class Camera(parent: Transform? = null) : Transform(parent) {
 
         // linear and exponential aren't really the correct types...
         // around 0f and 180f should have exponential speed decay
-        val fovType = Type(90f, 1, 1f, true, true, { clamp(castToFloat2(it), 0.001f, 179.999f) }, { it })
+        val fovType = NumberType(90f, 1, 1f, true, true, { clamp(castToFloat2(it), 0.001f, 179.999f) }, { it })
 
         const val DEFAULT_VIGNETTE_STRENGTH = 5f
 
     }
-
 }

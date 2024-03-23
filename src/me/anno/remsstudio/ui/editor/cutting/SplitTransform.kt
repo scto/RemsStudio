@@ -1,14 +1,14 @@
 package me.anno.remsstudio.ui.editor.cutting
 
-import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.RemsStudio
+import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.ui.sceneTabs.SceneTabs
-import me.anno.utils.files.Naming
+import me.anno.remsstudio.utils.Naming
 import org.joml.Vector4f
 
 object SplitTransform {
 
-    fun split(transform: Transform, localTime: Double){
+    fun split(transform: Transform, localTime: Double) {
         val fadingTime = 0.2
         val fadingHalf = fadingTime / 2
         transform.color.isAnimated = true
@@ -44,8 +44,8 @@ object SplitTransform {
         second.color.addKeyframe(localTime, color)
     }
 
-    fun Transform.addAfter(child: Transform) {
-        val p = parent!!
+    private fun Transform.addAfter(child: Transform) {
+        val p = parent ?: return
         val index = p.children.indexOf(this)
         p.children.add(index + 1, child)
         child.parent = p

@@ -1,9 +1,8 @@
 package me.anno.remsstudio.animation
 
+import me.anno.Time
 import me.anno.animation.Interpolation
-import me.anno.animation.Type
 import me.anno.gpu.GFX.glThread
-import me.anno.io.ISaveable
 import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.maths.Maths.clamp
@@ -13,6 +12,7 @@ import me.anno.remsstudio.animation.AnimationMaths.mulAdd
 import me.anno.remsstudio.animation.Keyframe.Companion.getWeights
 import me.anno.remsstudio.animation.drivers.AnimationDriver
 import me.anno.remsstudio.utils.WrongClassType
+import me.anno.ui.input.NumberType
 import me.anno.utils.Color.black3
 import me.anno.utils.structures.lists.UnsafeArrayList
 import me.anno.utils.types.AnyToDouble.getDouble
@@ -22,73 +22,58 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
+@Suppress("MemberVisibilityCanBePrivate")
+class AnimatedProperty<V>(var type: NumberType, var defaultValue: V) : Saveable() {
 
     @Suppress("UNCHECKED_CAST")
-    constructor(type: Type) : this(type, type.defaultValue as V)
+    constructor(type: NumberType) : this(type, type.defaultValue as V)
 
-    constructor() : this(Type.ANY)
+    constructor() : this(NumberType.ANY)
 
     companion object {
 
         private val LOGGER = LogManager.getLogger(AnimatedProperty::class)
 
-        fun any() = AnimatedProperty<Any>(Type.ANY)
-        fun int() = AnimatedProperty<Int>(Type.INT)
-        fun int(defaultValue: Int) = AnimatedProperty(Type.INT, defaultValue)
-        fun intPlus() = AnimatedProperty<Int>(Type.INT_PLUS)
-        fun intPlus(defaultValue: Int) = AnimatedProperty(Type.INT_PLUS, defaultValue)
-        fun long() = AnimatedProperty<Long>(Type.LONG)
-        fun float() = AnimatedProperty<Float>(Type.FLOAT)
-        fun float(defaultValue: Float) = AnimatedProperty(Type.FLOAT, defaultValue)
-        fun floatPlus() = AnimatedProperty<Float>(Type.FLOAT_PLUS)
-        fun floatPlus(defaultValue: Float) = AnimatedProperty(Type.FLOAT_PLUS, defaultValue)
-        fun floatPlusExp() = AnimatedProperty<Float>(Type.FLOAT_PLUS_EXP)
-        fun floatPlusExp(defaultValue: Float) = AnimatedProperty(Type.FLOAT_PLUS_EXP, defaultValue)
-        fun float01() = AnimatedProperty<Float>(Type.FLOAT_01)
-        fun float01(defaultValue: Float) = AnimatedProperty(Type.FLOAT_01, defaultValue)
-        fun float01exp(defaultValue: Float) = AnimatedProperty(Type.FLOAT_01_EXP, defaultValue)
-        fun floatPercent() = AnimatedProperty<Float>(Type.FLOAT_PERCENT)
-        fun double() = AnimatedProperty<Double>(Type.DOUBLE)
-        fun double(defaultValue: Double) = AnimatedProperty(Type.DOUBLE, defaultValue)
-        fun vec2() = AnimatedProperty<Vector2f>(Type.VEC2)
-        fun vec2(defaultValue: Vector2f) = AnimatedProperty(Type.VEC2, defaultValue)
-        fun vec3() = AnimatedProperty(Type.VEC3, black3)
-        fun dir3() = vec3(Vector3f(0f, 1f, 0f))
-        fun vec3(defaultValue: Vector3f) = AnimatedProperty(Type.VEC3, defaultValue)
-        fun vec4() = AnimatedProperty<Vector4f>(Type.VEC4)
-        fun vec4(defaultValue: Vector4f) = AnimatedProperty(Type.VEC4, defaultValue)
-        fun pos() = AnimatedProperty<Vector3f>(Type.POSITION)
-        fun pos(defaultValue: Vector3f) = AnimatedProperty(Type.POSITION, defaultValue)
-        fun pos2D() = AnimatedProperty<Vector2f>(Type.POSITION_2D)
-        fun rotYXZ() = AnimatedProperty<Vector3f>(Type.ROT_YXZ)
-        fun rotY() = AnimatedProperty<Float>(Type.ROT_Y)
-        fun rotXZ() = AnimatedProperty<Vector2f>(Type.ROT_XZ)
-        fun scale() = AnimatedProperty<Vector3f>(Type.SCALE)
-        fun scale(defaultValue: Vector3f) = AnimatedProperty(Type.SCALE, defaultValue)
-        fun color() = AnimatedProperty<Vector4f>(Type.COLOR)
-        fun color(defaultValue: Vector4f) = AnimatedProperty(Type.COLOR, defaultValue)
-        fun color3() = AnimatedProperty<Vector3f>(Type.COLOR3)
-        fun color3(defaultValue: Vector3f) = AnimatedProperty(Type.COLOR3, defaultValue)
-        fun quat() = AnimatedProperty<Quaternionf>(Type.QUATERNION)
-        fun skew() = AnimatedProperty<Vector2f>(Type.SKEW_2D)
-        fun tiling() = AnimatedProperty<Vector4f>(Type.TILING)
+        fun any() = AnimatedProperty<Any>(NumberType.ANY)
+        fun int(defaultValue: Int) = AnimatedProperty(NumberType.INT, defaultValue)
+        fun intPlus(defaultValue: Int) = AnimatedProperty(NumberType.INT_PLUS, defaultValue)
+        fun long(defaultValue: Long) = AnimatedProperty(NumberType.LONG, defaultValue)
+        fun float(defaultValue: Float) = AnimatedProperty(NumberType.FLOAT, defaultValue)
+        fun floatPlus(defaultValue: Float) = AnimatedProperty(NumberType.FLOAT_PLUS, defaultValue)
+        fun float01(defaultValue: Float) = AnimatedProperty(NumberType.FLOAT_01, defaultValue)
+        fun float01exp(defaultValue: Float) = AnimatedProperty(NumberType.FLOAT_01_EXP, defaultValue)
+        fun double(defaultValue: Double) = AnimatedProperty(NumberType.DOUBLE, defaultValue)
+        fun vec2(defaultValue: Vector2f) = AnimatedProperty(NumberType.VEC2, defaultValue)
+        fun vec3(defaultValue: Vector3f) = AnimatedProperty(NumberType.VEC3, defaultValue)
+        fun vec4(defaultValue: Vector4f) = AnimatedProperty(NumberType.VEC4, defaultValue)
+        fun pos() = AnimatedProperty<Vector3f>(NumberType.POSITION)
+        fun pos(defaultValue: Vector3f) = AnimatedProperty(NumberType.POSITION, defaultValue)
+        fun pos2D() = AnimatedProperty<Vector2f>(NumberType.POSITION_2D)
+        fun rotYXZ() = AnimatedProperty<Vector3f>(NumberType.ROT_YXZ)
+        fun rotY() = AnimatedProperty<Float>(NumberType.ROT_Y)
+        fun scale() = AnimatedProperty<Vector3f>(NumberType.SCALE)
+        fun scale(defaultValue: Vector3f) = AnimatedProperty(NumberType.SCALE, defaultValue)
+        fun color(defaultValue: Vector4f) = AnimatedProperty(NumberType.COLOR, defaultValue)
+        fun color3(defaultValue: Vector3f) = AnimatedProperty(NumberType.COLOR3, defaultValue)
+        fun skew() = AnimatedProperty<Vector2f>(NumberType.SKEW_2D)
+        fun tiling() = AnimatedProperty<Vector4f>(NumberType.TILING)
 
-        fun string() = AnimatedProperty(Type.STRING, "")
-        fun alignment() = AnimatedProperty(Type.ALIGNMENT, 0f)
+        fun string() = AnimatedProperty(NumberType.STRING, "")
+        fun alignment() = AnimatedProperty(NumberType.ALIGNMENT, 0f)
 
-        // fun <V> set() = AnimatedProperty(Type.ANY, emptySet<V>())
+        // fun <V> set() = AnimatedProperty(NumberType.ANY, emptySet<V>())
 
     }
 
     val drivers = arrayOfNulls<AnimationDriver>(type.components)
 
     var isAnimated = false
+    var lastChanged = 0L
     val keyframes = UnsafeArrayList<Keyframe<V>>()
 
     fun ensureCorrectType(v: Any?): V {
         @Suppress("UNCHECKED_CAST")
-        return type.acceptOrNull(v!!) as V ?: throw RuntimeException("got $v for $type")
+        return type.acceptOrNull(v) as V ?: throw RuntimeException("got $v for $type")
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -110,7 +95,7 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
     fun addKeyframe(time: Double, value: Any) =
         addKeyframe(time, value, 0.001)
 
-    fun addKeyframe(time: Double, value: Any, equalityDt: Double): Keyframe<V>? {
+    fun addKeyframe(time: Double, value: Any?, equalityDt: Double): Keyframe<V>? {
         val value2 = type.acceptOrNull(value)
         return if (value2 != null) {
             @Suppress("UNCHECKED_CAST")
@@ -145,14 +130,17 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
                 val newFrame = Keyframe(time, value, interpolation)
                 keyframes.add(newFrame)
                 sort()
+                lastChanged = Time.nanoTime
                 return newFrame
             } else {
                 if (keyframes.size >= 1) {
                     keyframes[0].value = value
+                    lastChanged = Time.nanoTime
                     return keyframes[0]
                 } else {
                     val newFrame = Keyframe(time, value, Interpolation.SPLINE)
                     keyframes.add(newFrame)
+                    lastChanged = Time.nanoTime
                     return newFrame
                 }
             }
@@ -179,6 +167,7 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
     fun remove(keyframe: Keyframe<*>): Boolean {
         checkThread()
         synchronized(this) {
+            lastChanged = Time.nanoTime
             return keyframes.remove(keyframe)
         }
     }
@@ -193,6 +182,7 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
     fun getAnimatedValue(time: Double, dst: V? = null): V {
         synchronized(this) {
             val size = keyframes.size
+            @Suppress("UNCHECKED_CAST")
             return when {
                 size == 0 -> return when (val v = defaultValue) {
                     is Vector2f -> AnimationMaths.v2(dst).set(v) as V
@@ -245,7 +235,7 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
         }
     }
 
-    operator fun get(time: Double, dst: V? = null) = getValueAt(time, dst)
+    operator fun get(time: Double, dst: V? = null): V = getValueAt(time, dst)
 
     fun getValueAt(time: Double, dst: Any? = null): V {
         val hasDrivers = drivers.any { it != null }
@@ -291,6 +281,11 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
     private fun getFloat(driverIndex: Int, time: Double, vi: Double, av: Float): Float {
         val driver = drivers[driverIndex]
         return driver?.getFloatValue(time, vi, driverIndex) ?: av
+    }
+
+    fun nextKeyframe(time: Double): Double {
+        return keyframes.firstOrNull { it.time > time }?.time
+            ?: Double.POSITIVE_INFINITY
     }
 
     private fun toCalc(a: V): Any {
@@ -342,65 +337,47 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
         }
     }
 
-    override fun readSomething(name: String, value: Any?) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
             "keyframe0", "v" -> addKeyframe(0.0, value ?: return)
-            else -> super.readSomething(name, value)
-        }
-    }
-
-    override fun readBoolean(name: String, value: Boolean) {
-        when (name) {
-            "isAnimated" -> isAnimated = value
-            else -> super.readBoolean(name, value)
-        }
-    }
-
-    override fun readObjectArray(name: String, values: Array<ISaveable?>) {
-        when (name) {
-            "keyframes", "vs" -> {
-                values.filterIsInstance<Keyframe<*>>().forEach { value ->
-                    val castValue = type.acceptOrNull(value.value!!)
-                    if (castValue != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        addKeyframe(value.time, clamp(castValue as V) as Any, 0.0)?.apply {
-                            interpolation = value.interpolation
-                        }
-                    } else LOGGER.warn("Dropped keyframe!, incompatible type ${value.value} for $type")
-                }
-            }
-            else -> super.readObjectArray(name, values)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+            "isAnimated" -> isAnimated = value == true
+            "driver0" -> setDriver(0, value as? AnimationDriver ?: return)
+            "driver1" -> setDriver(1, value as? AnimationDriver ?: return)
+            "driver2" -> setDriver(2, value as? AnimationDriver ?: return)
+            "driver3" -> setDriver(3, value as? AnimationDriver ?: return)
             "keyframes", "vs" -> {
                 if (value is Keyframe<*>) {
-                    val castValue = type.acceptOrNull(value.value!!)
+                    val castValue = type.acceptOrNull(value.value)
                     if (castValue != null) {
                         @Suppress("UNCHECKED_CAST")
                         addKeyframe(value.time, clamp(castValue as V) as Any, 0.0)?.apply {
                             interpolation = value.interpolation
                         }
                     } else LOGGER.warn("Dropped keyframe!, incompatible type ${value.value} for $type")
-                } else WrongClassType.warn("keyframe", value)
+                } else if (value is Array<*>) {
+                    for (vi in value.filterIsInstance<Keyframe<*>>()) {
+                        val castValue = type.acceptOrNull(vi.value)
+                        if (castValue != null) {
+                            @Suppress("UNCHECKED_CAST")
+                            addKeyframe(vi.time, clamp(castValue as V) as Any, 0.0)?.apply {
+                                interpolation = vi.interpolation
+                            }
+                        } else LOGGER.warn("Dropped keyframe!, incompatible type ${vi.value} for $type")
+                    }
+                } else WrongClassType.warn("keyframe", value as? Saveable)
             }
-            "driver0" -> setDriver(0, value)
-            "driver1" -> setDriver(1, value)
-            "driver2" -> setDriver(2, value)
-            "driver3" -> setDriver(3, value)
-            else -> super.readObject(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 
-    fun setDriver(index: Int, value: ISaveable?) {
+    fun setDriver(index: Int, value: Saveable?) {
         if (index >= drivers.size) {
             LOGGER.warn("Driver$index out of bounds for ${type.components}/${drivers.size}/$type")
             return
         }
         if (value is AnimationDriver) {
             drivers[index] = value
+            lastChanged = Time.nanoTime
         } else WrongClassType.warn("driver", value)
     }
 
@@ -421,6 +398,7 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
             for (i in 0 until type.components) {
                 this.drivers[i] = obj.drivers.getOrNull(i)
             }
+            lastChanged = Time.nanoTime
         } else LOGGER.warn("copy-from-object $obj is not an AnimatedProperty!")
     }
 
@@ -430,6 +408,7 @@ class AnimatedProperty<V>(var type: Type, var defaultValue: V) : Saveable() {
             drivers[i] = null
         }
         keyframes.clear()
+        lastChanged = Time.nanoTime
     }
 
     override fun isDefaultValue() =

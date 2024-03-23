@@ -1,15 +1,14 @@
 package me.anno.remsstudio.objects
 
 import me.anno.config.DefaultConfig
-import me.anno.io.ISaveable
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
 import me.anno.language.translation.Dict
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.modes.ArraySelectionMode
-import me.anno.studio.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
 import me.anno.utils.types.Floats.toRadians
 import org.joml.Matrix4fArrayList
 import org.joml.Vector2f
@@ -23,7 +22,7 @@ class GFXArray(parent: Transform? = null) : GFXTransform(parent) {
     val perChildRotation = AnimatedProperty.rotYXZ()
     val perChildScale = AnimatedProperty.scale()
     val perChildSkew = AnimatedProperty.skew()
-    var perChildDelay = AnimatedProperty.double()
+    var perChildDelay = AnimatedProperty.double(0.0)
 
     // val perChildTimeDilation = FloatArray(MAX_ARRAY_DIMENSION) // useful?, power vs linear
 
@@ -32,7 +31,7 @@ class GFXArray(parent: Transform? = null) : GFXTransform(parent) {
     override val symbol get() = DefaultConfig["ui.symbol.array", "[[["]
 
     val instanceCount = AnimatedProperty.intPlus(10)
-    var selectionSeed = AnimatedProperty.long()
+    var selectionSeed = AnimatedProperty.long(0)
     var selectionMode = ArraySelectionMode.ROUND_ROBIN
 
     override fun acceptsWeight(): Boolean = true
@@ -48,23 +47,19 @@ class GFXArray(parent: Transform? = null) : GFXTransform(parent) {
         writer.writeObject(this, "selectionSeed", selectionSeed)
     }
 
-    override fun readObject(name: String, value: ISaveable?) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
             "instanceCount" -> instanceCount.copyFrom(value)
             "perChildTranslation" -> perChildTranslation.copyFrom(value)
             "perChildRotation" -> perChildRotation.copyFrom(value)
             "perChildScale" -> perChildScale.copyFrom(value)
             "perChildSkew" -> perChildSkew.copyFrom(value)
-            "perChildDelay" -> perChildDelay.copyFrom(value)
+            "perChildDelay" -> {
+                if (value is Double) perChildDelay.set(value)
+                else perChildDelay.copyFrom(value)
+            }
             "selectionSeed" -> selectionSeed.copyFrom(value)
-            else -> super.readObject(name, value)
-        }
-    }
-
-    override fun readDouble(name: String, value: Double) {
-        when (name) {
-            "perChildDelay" -> perChildDelay.set(value)
-            else -> super.readDouble(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -146,38 +141,41 @@ class GFXArray(parent: Transform? = null) : GFXTransform(parent) {
 
         val child = getGroup("Per-Child Transform", "For the n-th child, it is applied (n-1) times.", "per-child")
         child += vis(
-            inspected, c, "Offset/Child", "Translation from one child to the next", "array.offset",
-            c.map { it.perChildTranslation }, style
+            c, "Offset/Child", "Translation from one child to the next",
+            "array.offset", "array.offset", c.map { it.perChildTranslation }, style
         )
         child += vis(
-            inspected, c, "Rotation/Child", "Rotation from one child to the next", "array.rotation",
-            c.map { it.perChildRotation }, style
+            c, "Rotation/Child", "Rotation from one child to the next",
+            "array.rotation", "array.rotation", c.map { it.perChildRotation }, style
         )
         child += vis(
-            inspected, c, "Scale/Child", "Scale factor from one child to the next", "array.scale",
-            c.map { it.perChildScale }, style
+            c, "Scale/Child", "Scale factor from one child to the next",
+            "array.scale", "array.scale", c.map { it.perChildScale }, style
         )
         child += vis(
-            inspected, c, "Delay/Child", "Temporal delay from one child to the next", "array.delay",
-            c.map { it.perChildDelay }, style
+            c, "Delay/Child", "Temporal delay from one child to the next",
+            "array.delay", "array.delay", c.map { it.perChildDelay }, style
         )
 
         val instances = getGroup("Instances", "", "children")
-        instances += vis(inspected, c, "Instance Count", "", "array.instanceCount", c.map { it.instanceCount }, style)
-        instances += vi(inspected, "Selection Mode", "", "array.selectionMode", null, selectionMode, style) {
-            for (x in c) x.selectionMode = it
-        }
         instances += vis(
-            inspected, c, "Selection Seed",
+            c, "Instance Count", "",
+            "array.instanceCount", "array.instanceCount", c.map { it.instanceCount }, style
+        )
+        instances += vi(
+            c, "Selection Mode", "",
+            "array.selectionMode", "array.selectionMode", null, selectionMode, style
+        ) { it, _ -> for (x in c) x.selectionMode = it }
+        instances += vis(
+            c, "Selection Seed",
             "Only for randomized selection mode; change it, if you have bad luck, or copies of this array, which shall look different",
             "array.selectionSeed",
-            c.map { it.selectionSeed }, style
+            c.map { it.selectionSeed },
+            style
         )
 
     }
 
     override val className get() = "GFXArray"
     override val defaultDisplayName get() = Dict["Array", "obj.array"]
-
-
 }

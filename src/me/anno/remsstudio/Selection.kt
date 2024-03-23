@@ -1,11 +1,11 @@
 package me.anno.remsstudio
 
-import me.anno.io.ISaveable
+import me.anno.engine.inspector.Inspectable
+import me.anno.io.Saveable
 import me.anno.io.find.PropertyFinder
 import me.anno.remsstudio.RemsStudio.root
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.Transform
-import me.anno.studio.Inspectable
 import me.anno.ui.editor.PropertyInspector.Companion.invalidateUI
 import me.anno.utils.structures.maps.BiMap
 import org.apache.logging.log4j.LogManager
@@ -13,7 +13,7 @@ import org.apache.logging.log4j.LogManager
 object Selection {
 
     // todo make it possible to select multiple stuff
-    // todo to edit common properties of all selected members <3 :D
+    //  to edit common properties of all selected members <3 :D
 
     private val LOGGER = LogManager.getLogger(Selection::class)
 
@@ -42,7 +42,7 @@ object Selection {
         needsUpdate = true
     }
 
-    fun selectProperty(property: List<ISaveable?>) {
+    fun selectProperty(property: List<Saveable?>) {
         if (selectedProperties == property) {
             select(selectedTransforms, null)
         } else select(selectedTransforms, property)
@@ -56,11 +56,11 @@ object Selection {
         select(if (transform != null) listOf(transform) else emptyList(), null)
     }
 
-    fun select(transform: Transform, property: ISaveable?) {
+    fun select(transform: Transform, property: Saveable?) {
         select(listOf(transform), if (property != null) listOf(property) else null)
     }
 
-    fun select(transforms0: List<Transform>, properties0: List<ISaveable?>?) {
+    fun select(transforms0: List<Transform>, properties0: List<Saveable?>?) {
 
         if (same(transforms0, selectedTransforms) && same(properties0, selectedProperties)) return
         val transforms = transforms0.map { transform ->
@@ -77,7 +77,7 @@ object Selection {
         }
 
         if (same(transforms, selectedTransforms) && same(properties0, selectedProperties)) return
-        val newName = if (properties0 == null || properties0.isEmpty() || properties0[0] == null) null
+        val newName = if (properties0.isNullOrEmpty() || properties0[0] == null) null
         else PropertyFinder.getName(transforms[0], properties0[0]!!)
         val propName = newName ?: selectedPropName
 
@@ -86,20 +86,6 @@ object Selection {
         val inspectables = foundProperties.withIndex().map { (i, it) -> it as? Inspectable ?: transforms[i] }
         val properties = foundProperties.map { it as? AnimatedProperty<*> }
 
-        /*if (uuids != selectedUUIDs)
-            println("UUIDs changed $selectedUUIDs -> $uuids")
-        if (propName != selectedPropName)
-            println("PropName changed $selectedPropName -> $propName")
-        if (inspectables != selectedInspectables)
-            println("Inspectables changed $selectedInspectables -> $inspectables")
-        if (properties != selectedProperties)
-            println("Properties changed $selectedProperties -> $properties")
-        if (transforms != selectedTransforms)
-            println(
-                "Transforms changed ${selectedTransforms.map { System.identityHashCode(it) }} -> " +
-                        "${transforms.map { System.identityHashCode(it) }}"
-            )*/
-
         if (
             uuids != selectedUUIDs ||
             propName != selectedPropName ||
@@ -107,7 +93,7 @@ object Selection {
             properties != selectedProperties ||
             transforms != selectedTransforms
         ) {
-            // LOGGER.info("$newName:$propName from ${transform?.className}:${property?.className}")
+            // println("Selecting $uuids/$propName/${inspectables.map { it.javaClass.simpleName }}/${transforms.map { getIdFromTransform(it) }}")
             RemsStudio.largeChange("Select ${transforms.firstOrNull()?.name ?: "Nothing"}:$propName") {
                 selectedUUIDs = uuids
                 selectedPropName = propName
@@ -115,6 +101,7 @@ object Selection {
                 selectedProperties = properties
                 selectedTransforms = transforms
             }
+            invalidateUI(true)
         }
     }
 
@@ -130,12 +117,7 @@ object Selection {
     }
 
     fun update() {
-        if (!needsUpdate) {
-
-            // nothing to do
-
-        } else {
-
+        if (needsUpdate) {
             // re-find the selected transform and property...
             selectedTransforms = getTransformsFromId()
             val selectedTransforms = selectedTransforms
@@ -150,11 +132,8 @@ object Selection {
                 selectedProperties = null
                 selectedInspectables = selectedTransforms
             }
-
             invalidateUI(true)
-
             needsUpdate = false
-
         }
     }
 
@@ -191,10 +170,11 @@ object Selection {
     private const val specialIdOffset = 1_000_000_000
     private val specialIds = BiMap<Transform, Int>(32)
     private fun getSpecialUUID(t: Transform): Int {
-        if (t in specialIds) return specialIds[t]!!
-        val id = specialIds.size + specialIdOffset
-        specialIds[t] = id
-        return id
+        val givenId = specialIds[t]
+        if (givenId != null) return givenId
+        val newId = specialIds.size + specialIdOffset
+        specialIds[t] = newId
+        return newId
     }
 
 }

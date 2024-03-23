@@ -1,6 +1,7 @@
 package me.anno.remsstudio.ui
 
 import me.anno.config.DefaultConfig
+import me.anno.engine.Events.addEvent
 import me.anno.io.files.FileReference
 import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.objects.SoftLink
@@ -8,10 +9,9 @@ import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.Transform.Companion.toTransform
 import me.anno.remsstudio.objects.Video
 import me.anno.remsstudio.objects.documents.PDFDocument
-import me.anno.remsstudio.objects.meshes.MeshTransform
+import me.anno.remsstudio.objects.MeshTransform
 import me.anno.gpu.drawing.UVProjection
 import me.anno.remsstudio.objects.text.Text
-import me.anno.studio.StudioBase.Companion.addEvent
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.RemsStudio.defaultWindowStack
 import me.anno.remsstudio.Selection.selectTransform
@@ -97,7 +97,7 @@ object StudioFileImporter : FileContentImporter<Transform>() {
                 RemsStudio.largeChange("Added Cubemap") {
                     val cube = Video(file, parent)
                     cube.scale.set(Vector3f(1000f, 1000f, 1000f))
-                    cube.uvProjection *= UVProjection.Equirectangular
+                    cube.uvProjection.value = UVProjection.Equirectangular
                     cube.name = name
                     if (doSelect) selectTransform(cube)
                     callback(cube)
@@ -107,7 +107,7 @@ object StudioFileImporter : FileContentImporter<Transform>() {
                 RemsStudio.largeChange("Added Cubemap") {
                     val cube = Video(file, parent)
                     cube.scale.set(Vector3f(1000f, 1000f, 1000f))
-                    cube.uvProjection *= UVProjection.TiledCubemap
+                    cube.uvProjection.value = UVProjection.TiledCubemap
                     cube.name = name
                     if (doSelect) selectTransform(cube)
                     callback(cube)
@@ -122,10 +122,10 @@ object StudioFileImporter : FileContentImporter<Transform>() {
                     if (DefaultConfig["import.decideCubemap", true]) {
                         if (fName.contains("360", true)) {
                             video.scale.set(Vector3f(1000f, 1000f, 1000f))
-                            video.uvProjection *= UVProjection.Equirectangular
+                            video.uvProjection.value = UVProjection.Equirectangular
                         } else if (fName.contains("cubemap", true)) {
                             video.scale.set(Vector3f(1000f, 1000f, 1000f))
-                            video.uvProjection *= UVProjection.TiledCubemap
+                            video.uvProjection.value = UVProjection.TiledCubemap
                         }
                     }
                     if (doSelect) selectTransform(video)
@@ -210,5 +210,4 @@ object StudioFileImporter : FileContentImporter<Transform>() {
     }
 
     private val LOGGER = LogManager.getLogger(StudioFileImporter::class)
-
 }

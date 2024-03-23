@@ -1,19 +1,15 @@
 package me.anno.remsstudio.ui.sceneTabs
 
 import me.anno.config.DefaultConfig
-import me.anno.gpu.GFX
-import me.anno.io.base.BaseWriter
+import me.anno.engine.EngineBase.Companion.dragged
+import me.anno.engine.Events.addEvent
 import me.anno.io.files.FileReference
-import me.anno.io.files.FileReference.Companion.getReference
 import me.anno.language.translation.Dict
-import me.anno.studio.StudioBase.Companion.dragged
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.ui.StudioFileImporter.addChildFromFile
 import me.anno.ui.base.groups.PanelList
 import me.anno.ui.base.scrolling.ScrollPanelX
 import me.anno.ui.editor.files.FileContentImporter
-import me.anno.remsstudio.ui.scene.SceneTabData
-import me.anno.studio.StudioBase.Companion.addEvent
 import me.anno.utils.structures.lists.Lists.getOrPrevious
 import org.apache.logging.log4j.LogManager
 
@@ -37,7 +33,7 @@ object SceneTabs : ScrollPanelX(DefaultConfig.style) {
                 addChildFromFile(null, file, FileContentImporter.SoftLinkMode.COPY_CONTENT, false) { transform ->
                     var file2 = file
                     if (file2.lcExtension != "json") {
-                        file2 = getReference(file2.getParent(), file2.name + ".json")
+                        file2 = file2.getParent().getChild(file2.name + ".json")
                     }
                     val tab = SceneTab(file2, transform, null)
                     content += tab
@@ -50,7 +46,7 @@ object SceneTabs : ScrollPanelX(DefaultConfig.style) {
     override fun onPaste(x: Float, y: Float, data: String, type: String) {
         when (type) {
             "SceneTab" -> {
-                val tab = dragged!!.getOriginal() as SceneTab
+                val tab = dragged?.getOriginal() as? SceneTab ?: return
                 if (!tab.contains(x, y)) {
                     val oldIndex = tab.indexInParent
                     val newIndex = panelChildren.map { it.x + it.width / 2 }.count { it < x }
@@ -96,11 +92,4 @@ object SceneTabs : ScrollPanelX(DefaultConfig.style) {
     fun closeAll() {
         panelChildren.clear()
     }
-
-    fun saveTabs(writer: BaseWriter) {
-        for(it in sceneTabs) {
-            writer.add(SceneTabData(it))
-        }
-    }
-
 }

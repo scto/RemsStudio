@@ -6,12 +6,11 @@ import me.anno.language.translation.Dict
 import me.anno.remsstudio.objects.Transform
 import me.anno.parser.SimpleExpressionParser.parseDouble
 import me.anno.parser.SimpleExpressionParser.preparse
-import me.anno.studio.Inspectable
-import me.anno.ui.Panel
+import me.anno.engine.inspector.Inspectable
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.TextInput
-import me.anno.ui.style.Style
-import me.anno.utils.structures.lists.CountingList
+import me.anno.ui.Style
+import me.anno.ui.base.groups.PanelListY
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -30,7 +29,7 @@ class HarmonicDriver : AnimationDriver() {
 
     override fun createInspector(
         inspected: List<Inspectable>,
-        list: MutableList<Panel>,
+        list: PanelListY,
         transforms: List<Transform>,
         style: Style,
         getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
@@ -49,7 +48,7 @@ class HarmonicDriver : AnimationDriver() {
         for (i in 0 until maxHarmonics) {
             val n = i + 1.0
             harmonics[i] = parseDouble(
-                CountingList(prepared), mapOf(
+                ArrayList(prepared), mapOf(
                     "n" to n, "i" to n
                 )
             )?.toFloat() ?: harmonics[i]
@@ -61,13 +60,13 @@ class HarmonicDriver : AnimationDriver() {
         writer.writeString("harmonics", harmonicsFormula)
     }
 
-    override fun readString(name: String, value: String?) {
-        when (name) {
+    override fun setProperty(name: String, value: Any?) {
+        when(name){
             "harmonics" -> {
-                harmonicsFormula = value ?: ""
+                harmonicsFormula = value as? String ?: return
                 updateHarmonics()
             }
-            else -> super.readString(name, value)
+            else -> super.setProperty(name, value)
         }
     }
 

@@ -1,23 +1,22 @@
 package me.anno.remsstudio.ui.sceneTabs
 
 import me.anno.config.DefaultConfig
+import me.anno.engine.EngineBase.Companion.dragged
+import me.anno.engine.EngineBase.Companion.workspace
 import me.anno.gpu.GFX
 import me.anno.input.ActionManager
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.io.files.FileReference
-import me.anno.io.files.FileReference.Companion.getReference
-import me.anno.io.text.TextReader
-import me.anno.io.text.TextWriter
+import me.anno.io.files.InvalidRef
+import me.anno.io.json.saveable.JsonStringReader
+import me.anno.io.json.saveable.JsonStringWriter
 import me.anno.language.translation.NameDesc
-import me.anno.maths.Maths.mixARGB
 import me.anno.remsstudio.RemsStudio.project
 import me.anno.remsstudio.history.History
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.ui.scene.SceneTabData
 import me.anno.remsstudio.ui.sceneTabs.SceneTabs.currentTab
 import me.anno.remsstudio.ui.sceneTabs.SceneTabs.open
-import me.anno.studio.StudioBase.Companion.dragged
-import me.anno.studio.StudioBase.Companion.workspace
 import me.anno.ui.base.menu.Menu.ask
 import me.anno.ui.base.menu.Menu.msg
 import me.anno.ui.base.menu.Menu.openMenu
@@ -25,11 +24,12 @@ import me.anno.ui.base.menu.MenuOption
 import me.anno.ui.base.text.TextPanel
 import me.anno.ui.dragging.Draggable
 import me.anno.ui.editor.files.FileExplorer
-import me.anno.ui.editor.files.toAllowedFilename
+import me.anno.ui.editor.files.FileNames.toAllowedFilename
+import me.anno.utils.Color.mixARGB
 import org.apache.logging.log4j.LogManager
 import kotlin.concurrent.thread
 
-class SceneTab(var file: FileReference?, var scene: Transform, history: History?) : TextPanel("", DefaultConfig.style) {
+class SceneTab(var file: FileReference, var scene: Transform, history: History?) : TextPanel("", DefaultConfig.style) {
 
     companion object {
         const val maxDisplayNameLength = 15
@@ -38,12 +38,12 @@ class SceneTab(var file: FileReference?, var scene: Transform, history: History?
 
     var history = history ?: try {
         // todo find project for file
-        TextReader.readFirstOrNull<History>(file!!, workspace)!!
+        JsonStringReader.readFirstOrNull<History>(file, workspace)!!
     } catch (e: java.lang.Exception) {
         History()
     }
 
-    private val longName get() = file?.name ?: scene.name
+    private val longName get() = file.nullIfUndefined()?.name ?: scene.name
     private val shortName
         get() = longName.run {
             if (length > maxDisplayNameLength) {
@@ -101,8 +101,8 @@ class SceneTab(var file: FileReference?, var scene: Transform, history: History?
         thread(name = "SaveScene") {
             try {
                 synchronized(scene) {
-                    dst.getParent()?.mkdirs()
-                    TextWriter.save(listOf(scene, history), dst, workspace)
+                    dst.getParent().mkdirs()
+                    JsonStringWriter.save(listOf(scene, history), dst, workspace)
                     file = dst
                     hasChanged = false
                     LOGGER.info("Saved!")
@@ -115,14 +115,15 @@ class SceneTab(var file: FileReference?, var scene: Transform, history: History?
     }
 
     fun save(onSuccess: () -> Unit) {
-        if (file == null) {
+        if (file == InvalidRef) {
             var name = scene.name.trim()
             if (!name.endsWith(".json", true)) name = "$name.json"
             val name0 = name
             // todo replace /,\?,..
             name = name.toAllowedFilename() ?: ""
             if (name.isEmpty()) {
-                val dst = getReference(project!!.scenes, name)
+                val project = project ?: throw IllegalStateException("Missing project")
+                val dst = project.scenes.getChild( name)
                 if (dst.exists) {
                     ask(
                         windowStack,
@@ -130,11 +131,11 @@ class SceneTab(var file: FileReference?, var scene: Transform, history: History?
                             .with("%1", dst.name)
                     ) {
                         file = dst
-                        save(file!!, onSuccess)
+                        save(file, onSuccess)
                     }
                 } else {
                     file = dst
-                    save(file!!, onSuccess)
+                    save(file, onSuccess)
                     rootPanel.forAll { if (it is FileExplorer) it.invalidate() }
                 }
             } else {
@@ -145,7 +146,7 @@ class SceneTab(var file: FileReference?, var scene: Transform, history: History?
                 )
             }
         } else {
-            save(file!!, onSuccess)
+            save(file, onSuccess)
         }
     }
 
@@ -159,17 +160,18 @@ class SceneTab(var file: FileReference?, var scene: Transform, history: History?
                     )
                 }
             }
+
             else -> return super.onGotAction(x, y, dx, dy, action, isContinuous)
         }
         return true
     }
 
-    override fun onMouseUp(x: Float, y: Float, button: MouseButton) {
-        ActionManager.executeGlobally(GFX.someWindow!!, 0f, 0f, false, listOf("DragEnd"))
+    override fun onKeyUp(x: Float, y: Float, key: Key) {
+        if (key == Key.BUTTON_LEFT) ActionManager.executeGlobally(GFX.someWindow, 0f, 0f, false, listOf("DragEnd"))
+        else super.onKeyUp(x, y, key)
     }
 
     override fun onPaste(x: Float, y: Float, data: String, type: String) {
         SceneTabs.onPaste(x, y, data, type)
     }
-
 }

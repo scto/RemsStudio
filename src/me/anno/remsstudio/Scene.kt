@@ -14,35 +14,36 @@ import me.anno.gpu.GFXState.renderPurely
 import me.anno.gpu.GFXState.useFrame
 import me.anno.gpu.blending.BlendMode
 import me.anno.gpu.drawing.DrawRectangles.drawRect
+import me.anno.gpu.framebuffer.DepthBufferType
 import me.anno.gpu.framebuffer.FBStack
 import me.anno.gpu.framebuffer.Framebuffer
 import me.anno.gpu.framebuffer.IFramebuffer
-import me.anno.gpu.framebuffer.NullFramebuffer
 import me.anno.gpu.shader.BaseShader
 import me.anno.gpu.shader.GLSLType
-import me.anno.gpu.shader.Renderer
 import me.anno.gpu.shader.Shader
 import me.anno.gpu.shader.ShaderFuncLib.acesToneMapping
-import me.anno.gpu.shader.ShaderFuncLib.noiseFunc
+import me.anno.gpu.shader.ShaderFuncLib.randomGLSL
 import me.anno.gpu.shader.ShaderFuncLib.reinhardToneMapping
 import me.anno.gpu.shader.ShaderFuncLib.uchimuraToneMapping
-import me.anno.gpu.shader.ShaderLib.ascColorDecisionList
 import me.anno.gpu.shader.ShaderLib.brightness
+import me.anno.gpu.shader.ShaderLib.coordsList
+import me.anno.gpu.shader.ShaderLib.coordsUVVertexShader
 import me.anno.gpu.shader.ShaderLib.createShader
-import me.anno.gpu.shader.ShaderLib.simplestVertexShader
 import me.anno.gpu.shader.ShaderLib.uvList
 import me.anno.gpu.shader.builder.Variable
 import me.anno.gpu.shader.builder.VariableMode
-import me.anno.gpu.shader.effects.GaussianBlur
+import me.anno.gpu.shader.renderer.Renderer
 import me.anno.gpu.texture.Clamping
-import me.anno.gpu.texture.GPUFiltering
+import me.anno.gpu.texture.Filtering
 import me.anno.gpu.texture.Texture3D
-import me.anno.image.ImageGPUCache.getLUT
+import me.anno.gpu.texture.TextureCache.getLUT
+import me.anno.image.utils.GaussianBlur
 import me.anno.maths.Maths.PIf
 import me.anno.remsstudio.RemsStudio.currentCamera
 import me.anno.remsstudio.RemsStudio.gfxSettings
 import me.anno.remsstudio.RemsStudio.nullCamera
 import me.anno.remsstudio.Selection.selectedTransforms
+import me.anno.remsstudio.gpu.ShaderLibV2.colorGrading
 import me.anno.remsstudio.objects.Camera
 import me.anno.remsstudio.objects.Camera.Companion.DEFAULT_VIGNETTE_STRENGTH
 import me.anno.remsstudio.objects.Transform
@@ -104,12 +105,12 @@ object Scene {
                 Variable(GLSLType.V3F, "finalColor", VariableMode.OUT),
                 Variable(GLSLType.V1F, "finalAlpha", VariableMode.OUT)
             ), "" +
-                    noiseFunc +
+                    randomGLSL +
                     reinhardToneMapping +
                     acesToneMapping +
                     uchimuraToneMapping +
                     brightness +
-                    ascColorDecisionList +
+                    colorGrading +
                     "vec2 distort(vec2 uv, vec2 nuv, vec2 duv){" +
                     "   vec2 nuv2 = nuv + duv;\n" +
                     "   float r2 = dot(nuv2,nuv2), r4 = r2*r2;\n" +
@@ -117,9 +118,7 @@ object Scene {
                     "   return uv2;\n" +
                     "}" +
                     "vec4 getColor(vec2 uv){" +
-                    "   float zero = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y))*1000.0;\n" +
-                    "   vec4 color = texture(tex, uv);\n" +
-                    "   return vec4(color.rgb, color.a * clamp(zero, 0.0, 1.0));\n" +
+                    "   return texture(tex, uv);\n" +
                     "}\n" +
                     "float softMin(float a, float b, float k){\n" +
                     "   return -(log(exp(k*-a)+exp(k*-b))/k);\n" +
@@ -141,7 +140,7 @@ object Scene {
                     "       vec3 raw = vec3(r, ga.x, b);\n" +
                     "       vec3 toneMapped;\n" +
                     "       switch(toneMapper){\n" +
-                    ToneMappers.values().joinToString("") {
+                    ToneMappers.entries.joinToString("") {
                         "case ${it.id}: toneMapped = ${it.glslFuncName}(raw);break;\n"
                     } + "default: toneMapped = vec3(1.0, 0.0, 1.0);\n" +
                     "       }" +
@@ -158,10 +157,11 @@ object Scene {
         )
 
         lutShader = createShader(
-            "lut", simplestVertexShader, uvList, "" +
-                    "uniform sampler2D tex;\n" +
-                    "uniform sampler3D lut;\n" +
-                    noiseFunc +
+            "lut", coordsList, coordsUVVertexShader, uvList, listOf(
+                Variable(GLSLType.S2D, "tex"),
+                Variable(GLSLType.S3D, "lut"),
+            ), "" +
+                    randomGLSL +
                     "void main(){" +
                     "   vec4 c0 = texture(tex, uv);\n" +
                     "   vec3 color = clamp(c0.rgb, 0.0, 1.0);\n" +
@@ -170,15 +170,16 @@ object Scene {
         )
 
         addBloomShader = createShader(
-            "addBloom", simplestVertexShader, uvList, "" +
-                    "uniform sampler2D original, blurred;\n" +
-                    "uniform float intensity;\n" +
+            "addBloom", coordsList, coordsUVVertexShader, uvList, listOf(
+                Variable(GLSLType.S2D, "original"),
+                Variable(GLSLType.S2D, "blurred"),
+                Variable(GLSLType.V1F, "intensity")
+            ), "" +
                     "void main(){" +
                     "   gl_FragColor = texture(original, uv) + intensity * texture(blurred, uv);\n" +
                     "   gl_FragColor.a = clamp(gl_FragColor.a, 0.0, 1.0);\n" +
                     "}", listOf("original", "blurred")
         )
-
 
         isInited = true
     }
@@ -187,10 +188,11 @@ object Scene {
         name: String,
         previous: IFramebuffer,
         offset: Int,
-        nearest: GPUFiltering,
+        nearest: Filtering,
         samples: Int?
-    ): Framebuffer {
-        val next = FBStack[name, previous.width, previous.height, 4, usesFPBuffers, samples ?: previous.samples, true]
+    ): IFramebuffer {
+        val next = FBStack[name, previous.width, previous.height, 4, usesFPBuffers, samples
+            ?: previous.samples, DepthBufferType.INTERNAL]
         previous.bindTextures(offset, nearest, Clamping.CLAMP)
         return next
     }
@@ -200,8 +202,9 @@ object Scene {
     var lGCTInverted = Matrix4f()
     var usesFPBuffers = false
 
-    val mayUseMSAA get() = if (isFinalRendering) DefaultConfig["rendering.useMSAA", true]
-    else DefaultConfig["ui.editor.useMSAA", gfxSettings.data["ui.editor.useMSAA", true]]
+    val mayUseMSAA
+        get() = if (isFinalRendering) DefaultConfig["rendering.useMSAA", true]
+        else DefaultConfig["ui.editor.useMSAA", gfxSettings.data["ui.editor.useMSAA", true]]
 
     // rendering must be done in sync with the rendering thread (OpenGL limitation) anyways, so one object is enough
     val stack = Matrix4fArrayList()
@@ -229,7 +232,7 @@ object Scene {
         stack.identity()
 
         val mayUseMSAA = mayUseMSAA
-        val samples = if (mayUseMSAA && !isFakeColorRendering) 8 else 1
+        val samples = if (mayUseMSAA && !isFakeColorRendering) RemsStudio.targetSamples else 1
 
         GFX.check()
 
@@ -262,7 +265,7 @@ object Scene {
         // (for low-performance devices)
         var needsTemporaryBuffer = !isFakeColorRendering
         if (needsTemporaryBuffer) {
-            val window = GFX.someWindow!!
+            val window = GFX.someWindow
             needsTemporaryBuffer = // issues are resolved: clipping was missing maybe...
                 flipY ||
                         samples > 1 ||
@@ -275,8 +278,9 @@ object Scene {
         }
 
         var buffer: IFramebuffer =
-            if (needsTemporaryBuffer) FBStack["Scene-Main", w, h, 4, usesFPBuffers, samples, camera.useDepth]
-            else GFXState.currentBuffer as Framebuffer? ?: NullFramebuffer
+            if (needsTemporaryBuffer) FBStack["Scene-Main", w, h, 4, usesFPBuffers, samples,
+                if (camera.useDepth) DepthBufferType.INTERNAL else DepthBufferType.NONE]
+            else GFXState.currentBuffer
 
         val x = if (needsTemporaryBuffer) 0 else x0
         val y = if (needsTemporaryBuffer) 0 else y0
@@ -288,9 +292,11 @@ object Scene {
 
                     val color = camera.backgroundColor.getValueAt(RemsStudio.editorTime, Vector4f())
                     buffer.clearDepth()
-                    depthMask.use(false) {
-                        depthMode.use(DepthMode.ALWAYS) {
-                            drawRect(x, y, w, h, color)
+                    blendMode.use(null) {
+                        depthMask.use(false) {
+                            depthMode.use(DepthMode.ALWAYS) {
+                                drawRect(x, y, w, h, color)
+                            }
                         }
                     }
 
@@ -315,13 +321,15 @@ object Scene {
                         stack.next { nullCamera?.draw(stack, time, white) }
                     }
 
+                    stack.next { scene.draw(stack, time, white) }
+
                     if (!isFakeColorRendering && !isFinalRendering && sceneView != null) {
-                        blendMode.use(BlendMode.ADD) {
-                            drawGrid(cameraTransform, sceneView)
+                        depthMask.use(false) {
+                            blendMode.use(BlendMode.ADD) {
+                                drawGrid(cameraTransform, sceneView)
+                            }
                         }
                     }
-
-                    stack.next { scene.draw(stack, time, white) }
 
                     GFX.check()
 
@@ -354,7 +362,7 @@ object Scene {
         val needsLUT = !isFakeColorRendering && lutFile.exists && !lutFile.isDirectory
         val lut = if (needsLUT) getLUT(lutFile, true, 20_000) else null
 
-        if (lut == null && needsLUT && isFinalRendering) throw MissingFrameException(lutFile)
+        if (lut == null && needsLUT && isFinalRendering) throw MissingFrameException(lutFile.absolutePath)
 
         if (buffer is Framebuffer && needsTemporaryBuffer) {
             renderPurely {
@@ -381,7 +389,7 @@ object Scene {
         lut: Texture3D
     ) {
 
-        val lutBuffer = getNextBuffer("Scene-LUT", buffer, 0, GPUFiltering.LINEAR, 1)
+        val lutBuffer = getNextBuffer("Scene-LUT", buffer, 0, Filtering.LINEAR, 1)
         useFrame(lutBuffer) {
             drawColors(isFakeColorRendering, camera, cameraTime, w, h, flipY)
         }
@@ -392,8 +400,8 @@ object Scene {
          * */
         val lutShader = lutShader.value
         lutShader.use()
-        lut.bind(1, GPUFiltering.LINEAR, Clamping.CLAMP)
-        lutBuffer.bindTextures(0, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
+        lut.bind(1, Filtering.LINEAR, Clamping.CLAMP)
+        lutBuffer.bindTextures(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
         flat01.draw(lutShader)
         GFX.check()
 
@@ -408,7 +416,7 @@ object Scene {
         h: Int,
         flipY: Boolean
     ) {
-        buffer.bindTextures(0, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
+        buffer.bindTextures(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
         drawColors(isFakeColorRendering, camera, cameraTime, w, h, flipY)
     }
 
@@ -419,7 +427,7 @@ object Scene {
 
         // create blurred version
         GaussianBlur.draw(buffer, bloomSize, w, h, 1, bloomThreshold, false, Matrix4fArrayList())
-        val bloomed = getNextBuffer("Scene-Bloom", buffer, 0, GPUFiltering.TRULY_NEAREST, 1)
+        val bloomed = getNextBuffer("Scene-Bloom", buffer, 0, Filtering.TRULY_NEAREST, 1)
 
         // add it on top
         useFrame(bloomed) {
@@ -540,14 +548,21 @@ object Scene {
                     val (transform, _) = selectedTransform.getGlobalTransformTime(time)
                     stack.next {
                         stack.mul(transform)
-                        stack.scale(0.02f)
-                        drawUICircle(stack, 1f, 0.700f, Vector4f(1f, 0.9f, 0.5f, 1f))
-                        stack.scale(1.2f)
-                        drawUICircle(stack, 1f, 0.833f, Vector4f(0f, 0f, 0f, 1f))
+                        drawSelectionRing(stack)
                     }
                 }
             }
         }
     }
+
+    fun drawSelectionRing(stack: Matrix4fArrayList) {
+        stack.scale(0.02f)
+        drawUICircle(stack, 1f, 0.700f, c0)
+        stack.scale(1.2f)
+        drawUICircle(stack, 1f, 0.833f, c1)
+    }
+
+    val c0 = Vector4f(1f, 0.9f, 0.5f, 1f)
+    val c1 = Vector4f(0f, 0f, 0f, 1f)
 
 }

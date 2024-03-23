@@ -4,11 +4,11 @@ import me.anno.config.DefaultConfig
 import me.anno.language.translation.Dict
 import me.anno.maths.Maths.fract
 import me.anno.remsstudio.objects.Transform
-import me.anno.studio.Inspectable
+import me.anno.engine.inspector.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.TextInputML
-import me.anno.ui.style.Style
 import org.joml.Matrix4fArrayList
 import org.joml.Vector4f
 import java.net.URL
@@ -23,33 +23,9 @@ class Timer(parent: Transform? = null) : Text("", parent) {
 
     // todo extra start value in a date format?
 
-    override fun getDocumentationURL() = URL("https://remsstudio.phychi.com/?s=learn/timer")
+    override fun getDocumentationURL() = "https://remsstudio.phychi.com/?s=learn/timer"
 
     var format = "hh:mm:ss.s2"
-
-    /*override fun splitSegments(text: String): PartResult? {
-        if(text.isEmpty()) return null
-        var index = 0
-        var startIndex = 0
-        var partResult: PartResult? = null
-        fun add(pr: PartResult){
-            partResult =
-                if(partResult == null) pr
-                else partResult!! + pr
-        }
-        while(index < text.length){
-            when(text[index]){
-                in '0' .. '9' -> {
-                    if(index > startIndex) add(super.splitSegments(text.substring(startIndex, index))!!)
-                    add(super.splitSegments(text[index].toString())!!)
-                    startIndex = index+1
-                }
-            }
-            index++
-        }
-        if(index > startIndex) add(super.splitSegments(text.substring(startIndex, index))!!)
-        return partResult!!
-    }*/
 
     override fun onDraw(stack: Matrix4fArrayList, time: Double, color: Vector4f) {
 
@@ -110,7 +86,7 @@ class Timer(parent: Transform? = null) : Text("", parent) {
     ) {
         super.createInspector(inspected, list, style, getGroup)
         list.children.removeIf { it is TextInputML && it.base.placeholder == "Text" }
-        list += vi(inspected, "Format", "ss=sec, mm=min, hh=hours, dd=days, s3=millis", null, format, style) {
+        list += vi(inspected, "Format", "ss=sec, mm=min, hh=hours, dd=days, s3=millis", null, format, style) { it, _ ->
             for (x in inspected) if (x is Timer) x.format = it
         }
     }
@@ -118,5 +94,4 @@ class Timer(parent: Transform? = null) : Text("", parent) {
     override val className get() = "Timer"
     override val defaultDisplayName get() = Dict["Timer", "obj.timer"]
     override val symbol get() = DefaultConfig["ui.symbol.timer", "\uD83D\uDD51"]
-
 }

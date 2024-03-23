@@ -1,32 +1,24 @@
 package me.anno.remsstudio.audio.pattern
 
-import me.anno.Engine
+import me.anno.Time
 import me.anno.config.DefaultConfig.style
 import me.anno.gpu.drawing.DrawTexts.drawSimpleTextCharByChar
 import me.anno.gpu.drawing.GFXx2D.drawCircle
-import me.anno.image.ImageWriter
 import me.anno.input.Input
-import me.anno.input.MouseButton
+import me.anno.input.Key
 import me.anno.language.translation.NameDesc
-import me.anno.maths.Maths.max
-import me.anno.maths.Maths.mix
-import me.anno.maths.Maths.mixARGB
 import me.anno.maths.Maths.pow
 import me.anno.maths.Maths.unmix
 import me.anno.remsstudio.RemsStudio
 import me.anno.ui.Panel
-import me.anno.ui.base.constraints.AxisAlignment
+import me.anno.ui.base.components.AxisAlignment
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.base.menu.Menu.openMenu
 import me.anno.ui.base.menu.MenuOption
-import me.anno.ui.debug.TestStudio.Companion.testUI
 import me.anno.ui.input.TextInput
 import me.anno.utils.Color.black
+import me.anno.utils.Color.mixARGB
 import me.anno.utils.types.Booleans.toInt
-import org.joml.Vector2f
-import org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER
-import org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE
-import kotlin.math.abs
 import kotlin.math.min
 
 /**
@@ -46,7 +38,7 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
 
     override fun onUpdate() {
         super.onUpdate()
-        level *= pow(0.1f, Engine.deltaTime)
+        level *= pow(0.1f, Time.deltaTime.toFloat())
         if (level > 0.01f) invalidateDrawing()
     }
 
@@ -96,11 +88,6 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
         )
     }
 
-    override fun onMouseDown(x: Float, y: Float, button: MouseButton) {
-        if (button.isLeft) callAction()
-        else super.onMouseDown(x, y, button)
-    }
-
     override fun onEnterKey(x: Float, y: Float) {
         callAction()
     }
@@ -121,8 +108,9 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
         changeListener?.invoke(times.toDoubleArray())
     }
 
-    override fun onKeyDown(x: Float, y: Float, key: Int) {
-        if (isRecording && key != GLFW_KEY_ESCAPE && key != GLFW_KEY_ENTER && !Input.isShiftDown && !Input.isControlDown) {
+    override fun onKeyDown(x: Float, y: Float, key: Key) {
+        if (key == Key.BUTTON_LEFT) callAction()
+        else if (isRecording && key != Key.KEY_ESCAPE && key != Key.KEY_ENTER && !Input.isShiftDown && !Input.isControlDown) {
             times.add(RemsStudio.editorTime)
             onTimesChange()
             ensurePlaying()
@@ -132,7 +120,6 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
     }
 
     companion object {
-
         fun create(v0: DoubleArray? = null, changeListener: ((DoubleArray) -> Unit)? = null): Panel {
             val l = PanelListY(style)
             val e = TextInput(style)
@@ -152,34 +139,6 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
             return l
         }
 
-        @JvmStatic
-        fun main(args: Array<String>) {
-            // testUI { create() }
-
-            // test time mapping visually :)
-            val steps = 500
-            val minT = 0f
-            val maxT = 10f
-            val rhythm = doubleArrayOf(1.0, 3.0, 5.0, 7.0, 9.0)
-            val timestamps = doubleArrayOf(-10.0, 10.0, -10.0, 10.0, -10.0)
-
-            val pts = (0 until steps).map {
-                mix(minT, maxT, it / (steps - 1f))
-            }.map {
-                Vector2f(it, -mapTime(rhythm, timestamps, it.toDouble()).toFloat())
-            }
-            val maxGradient = 2f * (maxT - minT) / steps
-            for (i in 1 until steps) {
-                if (abs(pts[i].y - pts[i - 1].y) > maxGradient) {
-                    println("${pts[i - 1]},${pts[i]}")
-                }
-            }
-            ImageWriter.writeImageCurve(
-                steps, steps, true,
-                -1, 0, 1, pts, ""
-            )
-        }
-
         fun mapTime(rhythm: DoubleArray, timestamps: DoubleArray, t: Double): Double {
             val s = min(rhythm.size, timestamps.size)
             if (s <= 0) return t
@@ -187,7 +146,7 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
             var idx = rhythm.binarySearch(t, 0, s)
             if (idx < 0) idx = -2 - idx
             else idx--
-            if(idx < 0) return timestamps[0] - rhythm[0] + t
+            if (idx < 0) return timestamps[0] - rhythm[0] + t
             val sm1 = s - 1
             if (idx >= sm1) return timestamps[sm1] - rhythm[sm1] + t
             val t0 = rhythm[idx]
@@ -198,6 +157,5 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
             val localTime = t - if (isRightSide) t1 else t0
             return dstTime + localTime
         }
-
     }
 }

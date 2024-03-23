@@ -1,23 +1,24 @@
 package me.anno.remsstudio
 
 import me.anno.Build
-import me.anno.Engine.deltaTime
-import me.anno.Engine.gameTime
+import me.anno.Time.deltaTime
+import me.anno.Time.gameTime
 import me.anno.audio.openal.ALBase
 import me.anno.audio.openal.AudioManager
-import me.anno.audio.openal.AudioTasks
-import me.anno.cache.instances.PDFPlugin
+import me.anno.audio.openal.AudioTasks.addAudioTask
 import me.anno.config.DefaultConfig
 import me.anno.config.DefaultStyle.baseTheme
-import me.anno.ecs.prefab.PrefabCache
+import me.anno.engine.EngineBase
+import me.anno.engine.Events.addEvent
+import me.anno.engine.GFXSettings
+import me.anno.engine.OfficialExtensions
 import me.anno.extensions.ExtensionLoader
 import me.anno.gpu.GFX
 import me.anno.gpu.OSWindow
 import me.anno.input.ActionManager
 import me.anno.input.Input.keyUpCtr
-import me.anno.installer.Installer.checkInstall
+import me.anno.installer.Installer
 import me.anno.io.files.FileReference
-import me.anno.io.files.FileReference.Companion.getReference
 import me.anno.language.Language
 import me.anno.language.translation.Dict
 import me.anno.remsstudio.CheckVersion.checkVersion
@@ -31,34 +32,52 @@ import me.anno.remsstudio.objects.text.Text
 import me.anno.remsstudio.ui.StudioFileImporter
 import me.anno.remsstudio.ui.scene.ScenePreview
 import me.anno.remsstudio.ui.sceneTabs.SceneTabs.currentTab
-import me.anno.studio.GFXSettings
-import me.anno.studio.StudioBase
 import me.anno.ui.Panel
-import me.anno.ui.base.groups.PanelListX
-import me.anno.ui.base.groups.PanelStack
+import me.anno.ui.Style
+import me.anno.ui.base.components.AxisAlignment
 import me.anno.ui.editor.PropertyInspector.Companion.invalidateUI
 import me.anno.ui.editor.WelcomeUI
 import me.anno.ui.editor.files.FileContentImporter
-import me.anno.ui.style.Style
 import me.anno.utils.OS
+import me.anno.utils.hpc.ProcessingQueue
+import kotlin.math.min
+
+// todo improvements:
+//  if playing forward, and time is non-modified, use VideoStream for much better playback performance
+
+// todo bug: when editing a driver, we should see its curve
+// todo bug: there is a webm file, whose video is black, and the audio only plays in the file explorer, not the studio :(
+// todo right-click option to remove linear sections from keyframe panel;
+// todo right-click option to thin out sections from keyframe panel;
+// todo right-click option to select by specific channel only (e.g. to rect-select all y over 0.5);
+// to do morphing: up/down/left/right
+// to do morphing: rect/hexagon shape?, rotate it?
+// to do hexagon/triangle/rectangle pixelation: rotate it?
+// done record multiple properties at once, e.g. camera motion and rotation
+// done morphing: swirl
+
+// todo respect masks when editing multiple instances at once
+
+// todo make music x times calmer, if another audio line (voice) is on as an optional feature
 
 // todo bugs:
+//  - shadows on SDF text have a black border, but they shouldn't
 //  - sometimes delete-key isn't registered as such
+//  - video files cannot be properly deleted, because files can't be deleted when reading them
+
+// todo use reflectionMap for mesh rendering where available
+//       - option to bake it around the mesh?
 
 // todo isolate and remove certain frequencies from audio
 // todo visualize audio frequency, always!!!, from 25Hz to 48kHz
 // inspiration: https://www.youtube.com/watch?v=RA5UiLYWdbM
 
+// todo show loudness of audio based on perceived amplitude, instead of real amplitude
+
 // todo scripting?...
 // todo gizmos
 
 // Launch4j
-
-// todo scene settings: render duration & size and such should be inside there as well
-
-// todo if a resource is requested, and there is a mutex limitation, it should be rejected instead of queued
-// so we don't put strain on the cpu & memory, if we don't really need the resource
-// this is the case for audio in the timeline, when just scrolling
 
 // todo calculate in-between frames for video by motion vectors; https://www.youtube.com/watch?v=PEe-ZeVbTLo ?
 // 30 -> 60 fps
@@ -77,13 +96,6 @@ import me.anno.utils.OS
 // nearby frame compression (small changes between frames, could use lower resolution) on the gpu side? maybe...
 // -> would maybe allow 60fps playback better
 
-
-// todo Version 2:
-// todo make stuff component based and compile shaders on the fly...
-// would allow easy system for pdf particles and such... maybe...
-
-// done color to alpha
-// done alpha to color
 // todo discard alpha being > or < than x / map alpha
 
 // todo splines for the polygon line
@@ -98,17 +110,12 @@ import me.anno.utils.OS
 
 // to do Mod with "hacked"-text effect for text: swizzle characters and introduce others?
 
-// todo bug: shift should select from-to, not two element
-// todo bug?: controls should select things one by one
-
 // todo when playing video, and the time hasn't been touched manually, slide the time panel, when the time reaches the end: slide by 1x window width
 
-object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
+object RemsStudio : EngineBase("Rem's Studio", 10301, true), WelcomeUI {
 
-    val defaultWindowStack get() = GFX.someWindow!!.windowStack
+    val defaultWindowStack get() = GFX.someWindow.windowStack
     var hideUnusedProperties = false
-
-    // private val LOGGER = LogManager.getLogger(RemsStudio::class)
 
     lateinit var currentCamera: Camera
     var lastTouchedCamera: Camera? = null
@@ -138,22 +145,20 @@ object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
     }
 
     override fun loadConfig() {
-        PrefabCache.disablePrefabs = true
         RemsRegistry.init()
         RemsConfig.init()
     }
 
     override fun onGameInit() {
-        ExtensionLoader.loadInternally(PDFPlugin::class)
+        OfficialExtensions.register()
+        ExtensionLoader.load()
         gfxSettings = GFXSettings.get(DefaultConfig["editor.gfx", GFXSettings.LOW.id], GFXSettings.LOW)
-        workspace = DefaultConfig["workspace.dir", getReference(OS.documents, configName)]
-        checkInstall()
+        workspace = DefaultConfig["workspace.dir", OS.documents.getChild(configName)]
+        Installer.checkFFMPEGInstall()
         checkVersion()
         AudioManager2.init()
         ShaderLibV2.init()
     }
-
-    lateinit var welcomeUI: WelcomeUI
 
     override fun isSelected(obj: Any?): Boolean {
         return contains(obj, Selection.selectedInspectables) ||
@@ -165,47 +170,38 @@ object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
         return list != null && obj in list
     }
 
-    override fun createUI() {
-        Dict.loadDefault()
-        welcomeUI = object : WelcomeUI() {
-
-            override fun createBackground(style: Style): Panel {
-                val background = ScenePreview(style)
-                val grayPlane = PanelListX(style).apply { backgroundColor = 0x55777777 }
-                val panel = PanelStack(style)
-                panel.add(background)
-                panel.add(grayPlane)
-                root.children.clear()
-                Text("Rem's Studio", root).apply {
-                    blockAlignmentX.set(0f)
-                    blockAlignmentY.set(0f)
-                    textAlignment.set(0f)
-                    relativeCharSpacing = 0.12f
-                    invalidate()
-                }
-                return panel
-            }
-
-            override fun loadProject(name: String, folder: FileReference): Pair<String, FileReference> {
-                val project = RemsStudio.loadProject(name, folder)
-                return Pair(project.name, project.file)
-            }
-
-            override fun createProjectUI() {
-                RemsStudioUILayouts.createEditorUI(welcomeUI)
-            }
+    override fun createBackground(style: Style): Panel {
+        val background = ScenePreview(style)
+        root.children.clear()
+        Text("Rem's Studio", root).apply {
+            blockAlignmentX.set(0f)
+            blockAlignmentY.set(0f)
+            textAlignment.set(0f)
+            relativeCharSpacing = 0.12f
+            invalidate()
         }
-        welcomeUI.create(this)
-        StudioActions.register()
-        ActionManager.init()
+        background.alignmentX = AxisAlignment.FILL
+        background.alignmentY = AxisAlignment.FILL
+        return background
     }
 
-    fun loadProject(name: String, folder: FileReference): Project {
+    override fun loadProject(name: String, folder: FileReference): Pair<String, FileReference> {
         val project = Project(name.trim(), folder)
         RemsStudio.project = project
         project.open()
-        GFX.someWindow?.title = "Rem's Studio: ${project.name}"
-        return project
+        GFX.someWindow.title = "Rem's Studio: ${project.name}"
+        return Pair(project.name, project.file)
+    }
+
+    override fun createProjectUI() {
+        RemsStudioUILayouts.createEditorUI(this)
+    }
+
+    override fun createUI() {
+        Dict.loadDefault()
+        create(this)
+        StudioActions.register()
+        ActionManager.init()
     }
 
     override fun openHistory() {
@@ -246,15 +242,20 @@ object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
     val isPlaying get() = editorTimeDilation != 0.0
 
     val targetDuration get(): Double = project?.targetDuration ?: Double.POSITIVE_INFINITY
+    val targetTransparency get() = project?.targetTransparency ?: false
     val targetSampleRate get(): Int = project?.targetSampleRate ?: 48000
     val targetFPS get(): Double = project?.targetFPS ?: 60.0
-    val targetWidth get(): Int = project?.targetWidth ?: GFX.someWindow!!.width
-    val targetHeight get(): Int = project?.targetHeight ?: GFX.someWindow!!.height
+    val targetWidth get(): Int = project?.targetWidth ?: GFX.someWindow.width
+    val targetHeight get(): Int = project?.targetHeight ?: GFX.someWindow.height
     val targetOutputFile get(): FileReference = project!!.targetOutputFile
     val motionBlurSteps get(): AnimatedProperty<Int> = project!!.motionBlurSteps
+    val targetSamples get(): Int = project?.targetSamples ?: min(GFX.maxSamples, 8)
     val shutterPercentage get() = project!!.shutterPercentage
     val history get() = currentTab?.history
     val nullCamera get() = project?.nullCamera
+    val timelineSnapping get(): Double = project?.timelineSnapping ?: 0.0
+    val timelineSnappingOffset get(): Double = project?.timelineSnappingOffset ?: 0.0
+    val timelineSnappingRadius get(): Int = project?.timelineSnappingRadius ?: 10
 
     var root = Transform()
 
@@ -284,7 +285,9 @@ object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
     fun incrementalChange(title: String, run: () -> Unit) =
         incrementalChange(title, title, run)
 
-    fun incrementalChange(title: String, groupCode: Any, run: () -> Unit) {
+    val savingWorker = ProcessingQueue("Saving")
+
+    fun incrementalChange(title: String, groupCode: String, run: () -> Unit) {
         val history = history ?: return run()
         val code = groupCode to keyUpCtr
         if (lastCode != code) {
@@ -292,7 +295,14 @@ object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
             lastCode = code
         } else {
             run()
-            history.update(title, code)
+            // register for change
+            if (savingWorker.remaining == 0) {
+                savingWorker += {
+                    synchronized(history) {
+                        history.update(title, code)
+                    }
+                }
+            }
         }
         currentTab?.hasChanged = true
         invalidateUI(false)
@@ -307,15 +317,17 @@ object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
 
     private fun change(title: String, code: Any, run: () -> Unit) {
         val history = history ?: return run()
-        if (history.isEmpty()) {
-            history.put("Start State", Unit)
+        synchronized(history) {
+            if (history.isEmpty()) {
+                history.put("Start State", Unit)
+            }
+            run()
+            history.put(title, code)
         }
-        run()
-        history.put(title, code)
     }
 
     fun updateAudio() {
-        AudioTasks.addTask("update", 100) {
+        addAudioTask("update", 100) {
             // update the audio player...
             if (isPlaying) {
                 AudioManager.requestUpdate()
@@ -339,7 +351,10 @@ object RemsStudio : StudioBase("Rem's Studio", 10118, true) {
     @JvmStatic
     fun main(args: Array<String>) {
 
-        // todo integration-test scene with ALL rendering/playback features
+        // to do integration-test scene with ALL rendering/playback features
+        // -> Example Project
+        // todo publish that project, and write an article for it
+        // todo publish example projects for all wiki pages?
 
         Build.isDebug = false
         Build.isShipped = true

@@ -1,12 +1,12 @@
 package me.anno.remsstudio.ui.input
 
-import me.anno.io.serialization.NotSerializedProperty
+import me.anno.engine.serialization.NotSerializedProperty
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.RemsStudio.project
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.ui.editor.color.ColorChooser
 import me.anno.ui.input.components.ColorPalette
-import me.anno.ui.style.Style
+import me.anno.ui.Style
 import org.joml.Vector3f
 import org.joml.Vector4f
 
@@ -37,8 +37,8 @@ class ColorChooserV2(style: Style, withAlpha: Boolean, val property: AnimatedPro
         if (lastTime != RemsStudio.editorTime) {
             lastTime = RemsStudio.editorTime
             when (val c = property[RemsStudio.editorTime]) {
-                is Vector3f -> setRGBA(c.x, c.y, c.z, 1f, false)
-                is Vector4f -> setRGBA(c, false)
+                is Vector3f -> setRGBA(c.x, c.y, c.z, 1f, -1, false)
+                is Vector4f -> setRGBA(c, -1, false)
                 else -> throw RuntimeException()
             }
         }

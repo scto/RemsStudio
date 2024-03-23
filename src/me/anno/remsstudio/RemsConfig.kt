@@ -2,15 +2,15 @@ package me.anno.remsstudio
 
 import me.anno.config.DefaultConfig
 import me.anno.gpu.drawing.UVProjection
-import me.anno.io.files.FileReference.Companion.getReference
+import me.anno.io.files.Reference.getReference
 import me.anno.io.utils.StringMap
+import me.anno.remsstudio.gpu.TexFiltering
 import me.anno.remsstudio.objects.*
 import me.anno.remsstudio.objects.attractors.EffectColoring
 import me.anno.remsstudio.objects.attractors.EffectMorphing
 import me.anno.remsstudio.objects.effects.MaskLayer
 import me.anno.remsstudio.objects.geometric.Circle
 import me.anno.remsstudio.objects.geometric.Polygon
-import me.anno.remsstudio.objects.meshes.MeshTransform
 import me.anno.remsstudio.objects.particles.ParticleSystem
 import me.anno.remsstudio.objects.particles.TextParticles
 import me.anno.remsstudio.objects.text.Text
@@ -19,6 +19,7 @@ import me.anno.utils.Clock
 import me.anno.utils.OS
 import org.joml.Vector3f
 
+@Suppress("MemberVisibilityCanBePrivate")
 object RemsConfig {
 
     fun init() {
@@ -26,11 +27,10 @@ object RemsConfig {
         DefaultConfig.apply {
 
             // I'm not sure about that one ;)
-            this["ffmpeg.path", getReference(OS.downloads, "lib\\ffmpeg\\bin\\ffmpeg.exe")]
+            this["ffmpeg.path", OS.downloads.getChild("lib\\ffmpeg\\bin\\ffmpeg.exe")]
 
             this["lastUsed.fonts.count", 5]
-            this["default.video.nearest", false]
-            this["default.image.nearest", false]
+            this["default.video.filtering", TexFiltering.CUBIC]
 
             this["format.svg.stepsPerDegree", 0.1f]
             this["objects.polygon.maxEdges", 1000]
@@ -38,7 +38,7 @@ object RemsConfig {
             this["rendering.resolutions.default", "1920x1080"]
             this["rendering.resolutions.defaultValues", "1920x1080,1920x1200,720x480,2560x1440,3840x2160"]
             this["rendering.resolutions.sort", 1] // 1 = ascending order, -1 = descending order, 0 = don't sort
-            this["rendering.frameRates", "24,30,60,90,120,144,240,300,360"]
+            this["rendering.frameRates", "24,30,48,60,90,120,144,240,300,360"]
 
             this["rendering.useMSAA", true] // should not be deactivated, unless... idk...
             this["ui.editor.useMSAA", true] // can be deactivated for really weak GPUs
@@ -62,7 +62,7 @@ object RemsConfig {
         val tick = Clock()
 
         val newInstances: Map<String, Transform> = mapOf(
-            "Mesh" to MeshTransform(getReference(OS.documents, "monkey.obj"), null),
+            "Mesh" to MeshTransform(getReference("res://icon.obj"), null),
             "Array" to GFXArray(),
             "Image / Audio / Video" to Video(),
             "Polygon" to Polygon(null),
@@ -75,7 +75,7 @@ object RemsConfig {
             "Timer" to Timer(),
             "Cubemap" to run {
                 val cube = Video()
-                cube.uvProjection *= UVProjection.TiledCubemap
+                cube.uvProjection.value = UVProjection.TiledCubemap
                 cube.scale.set(Vector3f(1000f, 1000f, 1000f))
                 cube
             },

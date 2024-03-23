@@ -1,15 +1,14 @@
 package me.anno.remsstudio.objects.geometric
 
-import me.anno.cache.instances.OldMeshCache
+import me.anno.cache.CacheSection
 import me.anno.config.DefaultConfig
+import me.anno.ecs.components.mesh.Mesh
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX
-import me.anno.gpu.buffer.Attribute
-import me.anno.gpu.buffer.StaticBuffer
 import me.anno.gpu.texture.Clamping
-import me.anno.gpu.texture.Filtering
+import me.anno.gpu.texture.TextureCache
 import me.anno.gpu.texture.TextureLib.whiteTexture
-import me.anno.image.ImageGPUCache
-import me.anno.io.ISaveable
+import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
@@ -17,12 +16,12 @@ import me.anno.language.translation.Dict
 import me.anno.maths.Maths.clamp
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.gpu.GFXx3Dv2.draw3DPolygon
+import me.anno.remsstudio.gpu.TexFiltering
 import me.anno.remsstudio.objects.GFXTransform
 import me.anno.remsstudio.objects.Transform
-import me.anno.studio.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
 import me.anno.utils.files.LocalFile.toGlobalFile
 import me.anno.utils.types.Floats.toRadians
 import me.anno.video.MissingFrameException
@@ -39,20 +38,22 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
     // todo round edges?
     // lines can be used temporarily, as long, as it's not implemented
 
-    override fun getDocumentationURL(): URL? = URL("https://remsstudio.phychi.com/?s=learn/geometry")
+    override fun getDocumentationURL() = "https://remsstudio.phychi.com/?s=learn/geometry"
 
     var texture: FileReference = InvalidRef
     var autoAlign = false
-    var filtering = Filtering.LINEAR
+    var filtering = TexFiltering.LINEAR
 
     var is3D = false
     var vertexCount = AnimatedProperty.intPlus(5)
-    var starNess = AnimatedProperty.float01()
+    var starNess = AnimatedProperty.float01(0f)
 
     override fun onDraw(stack: Matrix4fArrayList, time: Double, color: Vector4f) {
         val inset = clamp(starNess[time], 0f, 1f)
-        val image = ImageGPUCache[texture, 5000, true]
-        if (image == null && texture.hasValidName() && GFX.isFinalRendering) throw MissingFrameException(texture)
+        val image = TextureCache[texture, 5000, true]
+        if (image == null && texture.hasValidName() && GFX.isFinalRendering) {
+            throw MissingFrameException(texture.toString())
+        }
         val texture = image ?: whiteTexture
         val count = vertexCount[time]//.roundToInt()
         if (inset == 1f && count % 2 == 0) return// invisible
@@ -96,34 +97,34 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
 
         val geo = getGroup("Geometry", "", "geometry")
         geo += vis(
-            inspected, c, "Vertex Count", "Quads, Triangles, all possible", "polygon.vertexCount",
-            c.map { it.vertexCount }, style
+            c, "Vertex Count", "Quads, Triangles, all possible", "polygon.vertexCount", c.map { it.vertexCount },
+            style
         )
         geo += vis(
-            inspected, c, "Star-ness", "Works best with even vertex count", "polygon.star-ness",
-            c.map { it.starNess }, style
+            c, "Star-ness", "Works best with even vertex count", "polygon.star-ness", c.map { it.starNess },
+            style
         )
         geo += vi(
             inspected, "Auto-Align",
             "Rotate 45°/90, and scale a bit; for rectangles", "polygon.autoAlign",
             null, autoAlign, style
-        ) { for (x in c) x.autoAlign = it }
-        geo += vi(inspected, "Extrude", "Makes it 3D", "polygon.extrusion", null, is3D, style) {
-            for (x in c) x.is3D = it
-        }
+        ) { it, _ -> for (x in c) x.autoAlign = it }
+        geo += vi(
+            inspected, "Extrude", "Makes it 3D", "polygon.extrusion", null, is3D, style
+        ) { it, _ -> for (x in c) x.is3D = it }
 
         val tex = getGroup("Pattern", "", "texture")
         tex += vi(
             inspected, "Pattern Texture",
             "For patterns like gradients radially; use a mask layer for images with polygon shape", "polygon.pattern",
             null, texture, style
-        ) { for (x in c) x.texture = it }
+        ) { it, _ -> for (x in c) x.texture = it }
         tex += vi(
             inspected, "Filtering",
             "Pixelated or soft look of pixels?",
             "texture.filtering",
             null, filtering, style
-        ) { for (x in c) x.filtering = it }
+        ) { it, _ -> for (x in c) x.filtering = it }
 
     }
 
@@ -137,40 +138,15 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
         writer.writeFile("texture", texture)
     }
 
-    override fun readString(name: String, value: String?) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "texture" -> texture = value?.toGlobalFile() ?: InvalidRef
-            else -> super.readString(name, value)
-        }
-    }
-
-    override fun readFile(name: String, value: FileReference) {
-        when (name) {
-            "texture" -> texture = value
-            else -> super.readFile(name, value)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+            "texture" -> texture = (value as? String)?.toGlobalFile() ?: (value as? FileReference) ?: InvalidRef
             "vertexCount" -> vertexCount.copyFrom(value)
             "inset" -> starNess.copyFrom(value)
-            else -> super.readObject(name, value)
-        }
-    }
-
-    override fun readInt(name: String, value: Int) {
-        when (name) {
-            "filtering" -> filtering = filtering.find(value)
-            else -> super.readInt(name, value)
-        }
-    }
-
-    override fun readBoolean(name: String, value: Boolean) {
-        when (name) {
-            "autoAlign" -> autoAlign = value
-            "is3D" -> is3D = value
-            else -> super.readBoolean(name, value)
+            "filtering" -> filtering = filtering.find(value as? Int ?: return)
+            "autoAlign" -> autoAlign = value == true
+            "is3D" -> is3D = value == true
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -190,28 +166,28 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
 
     companion object {
 
+        val PolygonCache = CacheSection("PolygonCache")
+
         val sqrt2 = sqrt(2f)
         val meshTimeout = 1000L
         private const val minEdges = 3
         private val maxEdges by lazy { DefaultConfig["objects.polygon.maxEdges", 1000] }
 
-        fun getBuffer(n: Int, hasDepth: Boolean): StaticBuffer {
+        fun getBuffer(n: Int, hasDepth: Boolean): Mesh {
             if (n < minEdges) return getBuffer(minEdges, hasDepth)
             if (n > maxEdges) return getBuffer(maxEdges, hasDepth)
-            return OldMeshCache.getEntry(
+            return PolygonCache.getEntry(
                 n * 2 + (if (hasDepth) 1 else 0),
                 meshTimeout, false
-            ) {
-                createBuffer(n, hasDepth)
-            } as StaticBuffer
+            ) { createBuffer(n, hasDepth) } as Mesh
         }
 
-        private fun createBuffer(n: Int, hasDepth: Boolean): StaticBuffer {
+        private fun createBuffer(n: Int, hasDepth: Boolean): Mesh {
 
             val frontCount = n * 3
             val sideCount = n * 6
             val vertexCount = if (hasDepth) frontCount * 2 + sideCount else frontCount
-            val buffer = StaticBuffer(listOf(Attribute("coords", 3), Attribute("attr1", 2)), vertexCount)
+
             val angles = FloatArray(n + 1) { i -> (i * Math.PI * 2.0 / n).toFloat() }
             val sin = angles.map { +sin(it) }
             val cos = angles.map { -cos(it) }
@@ -227,29 +203,29 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
 
             outline.add(outline.first())
 
+            val positions = FloatArray(vertexCount * 3)
+            val uvs = FloatArray(vertexCount * 2)
+            var i = 0
+            var j = 0
             fun putCenter(depth: Float) {
-                buffer.put(0f)
-                buffer.put(0f)
-                buffer.put(depth)
-                buffer.put(0f)
-                buffer.put(0f)
+                i += 2
+                positions[i++] = depth
+                j += 2
             }
 
             fun put(out: Vector4f, depth: Float) {
-                buffer.put(out.x)
-                buffer.put(out.y)
-                buffer.put(depth)
-                buffer.put(out.z)
-                buffer.put(out.w)
+                positions[i++] = out.x
+                positions[i++] = out.y
+                positions[i++] = depth
+                uvs[j++] = out.z
+                uvs[j++] = out.w
             }
 
             fun putFront(depth: Float) {
-                for (i in 0 until n) {
-
+                for (k in 0 until n) {
                     putCenter(depth)
-                    put(outline[i], depth)
-                    put(outline[i + 1], depth)
-
+                    put(outline[k], depth)
+                    put(outline[k + 1], depth)
                 }
             }
 
@@ -261,21 +237,24 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
             }
 
             if (hasDepth) {
-                for (i in 0 until n) {
+                for (k in 0 until n) {
 
                     // 012
-                    put(outline[i], d1)
-                    put(outline[i + 1], d1)
-                    put(outline[i + 1], d2)
+                    put(outline[k], d1)
+                    put(outline[k + 1], d1)
+                    put(outline[k + 1], d2)
 
                     // 023
-                    put(outline[i], d1)
-                    put(outline[i + 1], d2)
-                    put(outline[i], d2)
+                    put(outline[k], d1)
+                    put(outline[k + 1], d2)
+                    put(outline[k], d2)
 
                 }
             }
 
+            val buffer = Mesh()
+            buffer.positions = positions
+            buffer.uvs = uvs
             return buffer
         }
     }

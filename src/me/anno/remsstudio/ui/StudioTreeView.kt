@@ -1,10 +1,9 @@
 package me.anno.remsstudio.ui
 
 import me.anno.config.DefaultConfig
-import me.anno.config.DefaultConfig.style
-import me.anno.gpu.drawing.DrawTexts.getTextSizeX
+import me.anno.config.DefaultStyle
 import me.anno.io.files.InvalidRef
-import me.anno.io.text.TextWriter
+import me.anno.io.json.saveable.JsonStringWriter
 import me.anno.io.utils.StringMap
 import me.anno.language.translation.Dict
 import me.anno.language.translation.NameDesc
@@ -14,39 +13,37 @@ import me.anno.remsstudio.RemsStudio.defaultWindowStack
 import me.anno.remsstudio.RemsStudio.lastTouchedCamera
 import me.anno.remsstudio.RemsStudio.nullCamera
 import me.anno.remsstudio.Selection
-import me.anno.remsstudio.objects.Camera
-import me.anno.remsstudio.objects.Rectangle
-import me.anno.remsstudio.objects.Transform
+import me.anno.remsstudio.objects.*
 import me.anno.remsstudio.objects.Transform.Companion.toTransform
 import me.anno.remsstudio.objects.effects.MaskLayer
-import me.anno.ui.base.Font
+import me.anno.remsstudio.ui.MenuUtils.drawTypeInCorner
+import me.anno.ui.Style
 import me.anno.ui.base.menu.Menu
 import me.anno.ui.base.menu.MenuOption
-import me.anno.ui.base.text.TextPanel
 import me.anno.ui.editor.treeView.TreeView
-import me.anno.ui.style.Style
 import me.anno.utils.Color.black
 import me.anno.utils.Color.toARGB
-import me.anno.utils.structures.lists.UpdatingList
-import me.anno.utils.types.Strings.joinChars
+import me.anno.utils.types.Strings.camelCaseToTitle
 import org.apache.logging.log4j.LogManager
 import org.joml.Vector3f
 import org.joml.Vector4f
 import java.util.*
-import kotlin.streams.toList
 
 class StudioTreeView(style: Style) :
-    TreeView<Transform>(
-        UpdatingList {
-            val nc = nullCamera
-            if (nc == null) listOf(RemsStudio.root)
-            else listOf(nc, RemsStudio.root)
-        },
-        StudioFileImporter, true, style
-    ) {
+    TreeView<Transform>(StudioFileImporter, true, style) {
+
+    override fun listSources(): List<Transform> {
+        val nc = nullCamera
+        return if (nc == null) listOf(RemsStudio.root)
+        else listOf(nc, RemsStudio.root)
+    }
+
+    override fun removeRoot(root: Transform) {
+        LOGGER.debug("Removing root is not supported")
+    }
 
     override fun getDragType(element: Transform) = "Transform"
-    override fun stringifyForCopy(element: Transform) = TextWriter.toText(element, InvalidRef)
+    override fun stringifyForCopy(element: Transform) = JsonStringWriter.toText(element, InvalidRef)
     override fun getSymbol(element: Transform) = element.symbol
     override fun isCollapsed(element: Transform) = element.isCollapsed
     override fun getName(element: Transform) = element.name.ifBlank { element.defaultDisplayName }
@@ -55,19 +52,22 @@ class StudioTreeView(style: Style) :
 
     override fun removeChild(parent: Transform, child: Transform) {
         parent.removeChild(child)
+        invalidateLayout()
     }
 
     override fun setCollapsed(element: Transform, collapsed: Boolean) {
         element.isCollapsedI.value = collapsed
+        invalidateLayout()
     }
-
 
     override fun setName(element: Transform, name: String) {
         element.nameI.value = name
+        invalidateLayout()
     }
 
     override fun destroy(element: Transform) {
         element.onDestroy()
+        invalidateLayout()
     }
 
     override fun canBeInserted(parent: Transform, element: Transform, index: Int): Boolean {
@@ -117,9 +117,12 @@ class StudioTreeView(style: Style) :
     }
 
     override fun getTooltipText(element: Transform): String? {
-        return if (element is Camera) {
-            element.defaultDisplayName + Dict[", drag onto scene to view", "ui.treeView.dragCameraToView"]
-        } else element::class.simpleName
+        return when (element) {
+            is Camera -> element.defaultDisplayName + Dict[", drag onto scene to view", "ui.treeView.dragCameraToView"]
+            is Video -> element.type.displayName.name
+            is MeshTransform -> "Mesh" // todo translate this
+            else -> element::class.simpleName?.camelCaseToTitle()
+        }
     }
 
     override fun onPaste(x: Float, y: Float, data: String, type: String) {
@@ -143,41 +146,6 @@ class StudioTreeView(style: Style) :
 
     companion object {
 
-        @JvmStatic
-        fun main(args: Array<String>) {
-            // test for layout width bugs
-            // works now :)
-            val s = 1024
-            println("\uD83C\uDF9E️" == "\uD83C\uDF9E")
-            val font0 = Font("Verdana", 15)
-            val font1 = Font("Segoe UI Emoji", 15)
-            println(listOf(127902).joinChars())
-            println(listOf(127902).joinChars().codePoints().toList())
-            println(getTextSizeX(font0, listOf(127902).joinChars(), s, s))
-            println(getTextSizeX(font1, listOf(127902).joinChars(), s, s))
-            println(getTextSizeX(font0, listOf(65039).joinChars(), s, s))
-            println(getTextSizeX(font1, listOf(65039).joinChars(), s, s))
-            println("\uD83C\uDF9E️")
-            println("\uD83C\uDF9E️".codePoints().toList())
-            println("xx " + listOf(127902).joinChars().length)
-            println("xx " + listOf(65039).joinChars().length)
-            println(
-                "xx " + "\uD83C\uDF9E️".length + "\uD83C\uDF9E".length + " xx " + "\uD83C\uDF9E️".codePoints().toList()
-                    .joinChars().length
-            )
-            println("xx " + "\uD83C\uDF9E️".codePoints().toList().joinChars().codePoints().toList())
-            println(getTextSizeX(font0, "\uD83C\uDF9E️", s, s))
-            println(getTextSizeX(font1, "\uD83C\uDF9E️", s, s))
-            println("\uD83C\uDFA5️")
-            println("\uD83C\uDFA5️".codePoints().toList())
-            println(getTextSizeX(font0, "\uD83C\uDFA5️", s, s))
-            println(getTextSizeX(font1, "\uD83C\uDFA5️", s, s))
-            println(getTextSizeX(font0, "\uD83C\uDFA5", s, s))
-            println(getTextSizeX(font1, "\uD83C\uDFA5", s, s))
-            val tp = TextPanel("\uD83C\uDFA5️", style)
-            println(tp.font)
-        }
-
         fun zoomToObject(obj: Transform) {
             // instead of asking for the name, move the camera towards the target
             // todo also zoom in/out correctly to match the object...
@@ -188,8 +156,10 @@ class StudioTreeView(style: Style) :
             val cameraToWorld = camera.parent?.getGlobalTransform(time)
             val objectToWorld = obj.getGlobalTransform(time)
             val objectWorldPosition = objectToWorld.transformPosition(Vector3f(0f, 0f, 0f))
-            val objectCameraPosition = if (cameraToWorld == null) objectWorldPosition else (cameraToWorld.invert()
-                .transformPosition(objectWorldPosition))
+
+            @Suppress("IfThenToElvis")
+            val objectCameraPosition = if (cameraToWorld == null) objectWorldPosition else
+                cameraToWorld.invert().transformPosition(objectWorldPosition)
             LOGGER.info(objectCameraPosition)
             // apply this movement
             RemsStudio.largeChange("Move Camera to Object") {
@@ -262,6 +232,11 @@ class StudioTreeView(style: Style) :
         return true
     }
 
-    override val className get() = "StudioTreeView"
+    private val fontColor = style.getColor("textColor", DefaultStyle.fontGray)
+    override fun drawBackground(x0: Int, y0: Int, x1: Int, y1: Int, dx: Int, dy: Int) {
+        super.drawBackground(x0, y0, x1, y1, dx, dy)
+        drawTypeInCorner("Tree", fontColor)
+    }
 
+    override val className get() = "StudioTreeView"
 }

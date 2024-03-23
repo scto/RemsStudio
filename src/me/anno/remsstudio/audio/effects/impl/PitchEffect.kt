@@ -1,7 +1,6 @@
 package me.anno.remsstudio.audio.effects.impl
 
 import audacity.soundtouch.TimeDomainStretch
-import me.anno.animation.Type
 import me.anno.audio.streams.AudioStreamRaw.Companion.bufferSize
 import me.anno.io.base.BaseWriter
 import me.anno.maths.Maths.clamp
@@ -10,9 +9,10 @@ import me.anno.remsstudio.audio.effects.SoundEffect
 import me.anno.remsstudio.audio.effects.Time
 import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
+import me.anno.ui.input.NumberType
 import me.anno.utils.types.Casting.castToFloat2
 import kotlin.math.abs
 
@@ -21,7 +21,7 @@ class PitchEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
     companion object {
         val maxPitch = 20f
         val minPitch = 1f / maxPitch
-        val pitchType = Type(1f, 1, 1f, false, true,
+        val pitchType = NumberType(1f, 1, 1f, false, true,
             { clamp(castToFloat2(it), minPitch, maxPitch) },
             { it is Float }
         )
@@ -38,12 +38,12 @@ class PitchEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
             inspected,
             "Inverse Speed", "Making something play faster, increases the pitch; this is undone by this node",
             null, inverseSpeed, style
-        ) { inverseSpeed = it }
+        ) { it, _ -> inverseSpeed = it }
         list += audio.vi(
             inspected,
             "Value", "Pitch height, if Inverse Speed = false",
             pitchType, pitch, style
-        ) { pitch = it }
+        ) { it, _ -> pitch = it }
     }
 
     var inverseSpeed = false
@@ -113,17 +113,11 @@ class PitchEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
         writer.writeFloat("pitch", pitch)
     }
 
-    override fun readBoolean(name: String, value: Boolean) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "inverseSpeed" -> inverseSpeed = value
-            else -> super.readBoolean(name, value)
-        }
-    }
-
-    override fun readFloat(name: String, value: Float) {
-        when (name) {
-            "pitch" -> pitch = value
-            else -> super.readFloat(name, value)
+            "inverseSpeed" -> inverseSpeed = value == true
+            "pitch" -> pitch = value as? Float ?: return
+            else -> super.setProperty(name, value)
         }
     }
 

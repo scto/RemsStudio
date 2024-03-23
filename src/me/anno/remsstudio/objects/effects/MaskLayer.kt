@@ -1,18 +1,21 @@
 package me.anno.remsstudio.objects.effects
 
 import me.anno.config.DefaultConfig
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX
 import me.anno.gpu.GFX.isFinalRendering
 import me.anno.gpu.GFXState.renderDefault
 import me.anno.gpu.GFXState.useFrame
+import me.anno.gpu.framebuffer.DepthBufferType
 import me.anno.gpu.framebuffer.FBStack
 import me.anno.gpu.framebuffer.Framebuffer
-import me.anno.gpu.shader.Renderer
+import me.anno.gpu.framebuffer.IFramebuffer
 import me.anno.gpu.shader.effects.BokehBlur
-import me.anno.gpu.shader.effects.GaussianBlur
+import me.anno.gpu.shader.renderer.Renderer
 import me.anno.gpu.texture.Clamping
-import me.anno.gpu.texture.GPUFiltering
-import me.anno.io.ISaveable
+import me.anno.gpu.texture.Filtering
+import me.anno.gpu.texture.Texture2D
+import me.anno.image.utils.GaussianBlur
 import me.anno.io.base.BaseWriter
 import me.anno.remsstudio.Scene
 import me.anno.remsstudio.Scene.mayUseMSAA
@@ -22,12 +25,11 @@ import me.anno.remsstudio.objects.GFXTransform
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.geometric.Circle
 import me.anno.remsstudio.objects.geometric.Polygon
-import me.anno.studio.Inspectable
 import me.anno.ui.Panel
+import me.anno.ui.Style
 import me.anno.ui.base.SpyPanel
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
-import me.anno.ui.style.Style
 import org.joml.Matrix4fArrayList
 import org.joml.Vector2f
 import org.joml.Vector4f
@@ -35,26 +37,25 @@ import java.net.URL
 
 open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
 
-    override fun getDocumentationURL(): URL? = URL("https://remsstudio.phychi.com/?s=learn/masks")
+    override fun getDocumentationURL() = "https://remsstudio.phychi.com/?s=learn/masks"
 
-    // just a little expensive...
-    // todo why is multisampling sometimes black?
-    // it's not yet production ready...
     val samples get() = if (useExperimentalMSAA && mayUseMSAA) 8 else 1
 
     // seems better, because it should not influence the alpha values
     override fun getStartTime(): Double = Double.NEGATIVE_INFINITY
 
-    lateinit var mask: Framebuffer
-    lateinit var masked: Framebuffer
+    lateinit var mask: IFramebuffer
+    lateinit var masked: IFramebuffer
 
     var useExperimentalMSAA = false
 
-    // limit to [0,1]?
-    // nice effects can be created with values outside of [0,1], so while [0,1] is the valid range,
-    // numbers outside [0,1] give artists more control
-    private val useMaskColor = AnimatedProperty.float()
-    private val blurThreshold = AnimatedProperty.float()
+    /**
+     * limit to [0,1]?
+     * nice effects can be created with values outside of [0,1], so while [0,1] is the valid range,
+     * numbers outside [0,1] give artists more control
+     * */
+    private val useMaskColor = AnimatedProperty.float(0f)
+    private val blurThreshold = AnimatedProperty.float(0f)
     private val effectOffset = AnimatedProperty.pos2D()
 
     // transition mask???... idk... when would you try to blur between stuff, and can't do it on a normal transform object?
@@ -97,8 +98,8 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
 
                 val w = GFX.viewportWidth
                 val h = GFX.viewportHeight
-                mask = FBStack["mask", w, h, 4, true, samples, true]
-                masked = FBStack["masked", w, h, 4, true, samples, true]
+                mask = FBStack["mask", w, h, 4, true, samples, DepthBufferType.INTERNAL]
+                masked = FBStack["masked", w, h, 4, true, samples, DepthBufferType.INTERNAL]
 
                 renderDefault {
 
@@ -152,19 +153,13 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
         writer.writeObject(this, "transitionSmoothness", transitionSmoothness)
     }
 
-    override fun readBoolean(name: String, value: Boolean) {
+    override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "showMask" -> showMask = value
-            "showMasked" -> showMasked = value
-            "isFullscreen" -> isFullscreen = value
-            "isInverted" -> isInverted = value
-            "useMSAA" -> useExperimentalMSAA = value
-            else -> super.readBoolean(name, value)
-        }
-    }
-
-    override fun readObject(name: String, value: ISaveable?) {
-        when (name) {
+            "showMask" -> showMask = value == true
+            "showMasked" -> showMasked = value == true
+            "isFullscreen" -> isFullscreen = value == true
+            "isInverted" -> isInverted = value == true
+            "useMSAA" -> useExperimentalMSAA = value == true
             "useMaskColor" -> useMaskColor.copyFrom(value)
             "blurThreshold" -> blurThreshold.copyFrom(value)
             "pixelSize" -> effectSize.copyFrom(value)
@@ -174,7 +169,8 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
             "greenScreenSpillValue" -> greenScreenSpillValue.copyFrom(value)
             "transitionProgress" -> transitionProgress.copyFrom(value)
             "transitionSmoothness" -> transitionSmoothness.copyFrom(value)
-            else -> super.readObject(name, value)
+            "type" -> type = MaskType.entries.firstOrNull { it.id == value } ?: type
+            else -> super.setProperty(name, value)
         }
     }
 
@@ -236,8 +232,8 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
                 GaussianBlur.draw(masked, pixelSize, w, h, 2, threshold, isFullscreen, stack)
 
                 // GFX.drawMode = oldDrawMode
-                masked.bindTexture0(1, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
-                mask.bindTexture0(0, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
+                masked.bindTexture0(1, Filtering.TRULY_NEAREST, Clamping.CLAMP)
+                mask.bindTexture0(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
 
                 GFX.check()
 
@@ -253,16 +249,17 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
             }
             MaskType.BOKEH_BLUR -> {
 
-                val temp = FBStack["mask-bokeh", w, h, 4, true, 1, false]
+                val temp = FBStack["mask-bokeh", w, h, 4, true, 1, DepthBufferType.NONE]
 
                 val src0 = masked
-                src0.bindTexture0(0, src0.textures[0].filtering, src0.textures[0].clamping!!)
-                val srcBuffer = src0.ssBuffer ?: src0
-                BokehBlur.draw(srcBuffer.textures[0], temp, pixelSize, Scene.usesFPBuffers)
+                val src0Tex = src0.getTexture0() as Texture2D
+                src0.bindTexture0(0, src0Tex.filtering, src0Tex.clamping!!)
+                val srcBuffer = (src0 as Framebuffer).ssBuffer ?: src0
+                BokehBlur.draw(srcBuffer.textures!![0], temp, pixelSize, Scene.usesFPBuffers)
 
-                temp.bindTexture0(2, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
-                masked.bindTexture0(1, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
-                mask.bindTexture0(0, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
+                temp.bindTexture0(2, Filtering.TRULY_NEAREST, Clamping.CLAMP)
+                masked.bindTexture0(1, Filtering.TRULY_NEAREST, Clamping.CLAMP)
+                mask.bindTexture0(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
 
                 draw3DMasked(
                     stack, color,
@@ -282,8 +279,8 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
 
                 BoxBlur.draw(masked, w, h, iw, ih, 2, stack)
 
-                masked.bindTexture0(1, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
-                mask.bindTexture0(0, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
+                masked.bindTexture0(1, Filtering.TRULY_NEAREST, Clamping.CLAMP)
+                mask.bindTexture0(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
 
                 GFX.check()
 
@@ -298,9 +295,9 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
             }*/
             else -> {
 
-                masked.bindTextures(1, GPUFiltering.TRULY_NEAREST, Clamping.MIRRORED_REPEAT)
+                masked.bindTextures(1, Filtering.TRULY_NEAREST, Clamping.MIRRORED_REPEAT)
                 GFX.check()
-                mask.bindTextures(0, GPUFiltering.TRULY_NEAREST, Clamping.CLAMP)
+                mask.bindTextures(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
                 GFX.check()
                 draw3DMasked(
                     stack, color,
@@ -324,9 +321,9 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
         super.createInspector(inspected, list, style, getGroup)
         val c = inspected.filterIsInstance<MaskLayer>()
         val mask = getGroup("Mask Settings", "Masks are multipurpose objects", "mask")
-        mask += vi(inspected, "Type", "Specifies what kind of mask it is", null, type, style) {
-            for (x in c) x.type = it
-        }
+        mask += vi(
+            inspected, "Type", "Specifies what kind of mask it is", null, type, style
+        ) { it, _ -> for (x in c) x.type = it }
 
         fun typeSpecific(panel: Panel, isVisible: (MaskType) -> Boolean) {
             mask += panel
@@ -346,9 +343,10 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
         mask += vi(
             inspected, "Invert Mask", "Changes transparency with opacity",
             null, isInverted, style
-        ) { for (x in c) x.isInverted = it }
+        ) { it, _ -> for (x in c) x.isInverted = it }
         mask += vis(
-            c, "Use Color / Transparency", "Should the color influence the masked?", c.map { it.useMaskColor },
+            c, "Use Color / Transparency", "Should the color influence the masked?",
+            c.map { it.useMaskColor },
             style
         )
         typeSpecific(vis(c, "Effect Center", "", c.map { it.effectOffset }, style)) {
@@ -366,19 +364,21 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
         mask += vi(
             inspected, "Make Huge", "Scales the mask, without affecting the children",
             null, isFullscreen, style
-        ) { for (x in c) x.isFullscreen = it }
+        ) { it, _ -> for (x in c) x.isFullscreen = it }
         mask += vi(
             inspected, "Use MSAA(!)",
             "MSAA is experimental, may not always work",
             null, useExperimentalMSAA, style
-        ) { for (x in c) x.useExperimentalMSAA = it }
+        ) { it, _ -> for (x in c) x.useExperimentalMSAA = it }
 
         val greenScreen =
             getGroup("Green Screen", "Type needs to be green-screen; cuts out a specific color", "greenScreen")
         greenScreen += vis(c, "Similarity", "", c.map { it.greenScreenSimilarity }, style)
         greenScreen += vis(c, "Smoothness", "", c.map { it.greenScreenSmoothness }, style)
         greenScreen += vis(c, "Spill Value", "", c.map { it.greenScreenSpillValue }, style)
-        greenScreen += vi(inspected, "Invert Mask 2", "", null, isInverted2, style) { for (x in c) x.isInverted2 = it }
+        greenScreen += vi(
+            inspected, "Invert Mask 2", "", null, isInverted2, style
+        ) { it, _ -> for (x in c) x.isInverted2 = it }
 
         val transition = getGroup("Transition", "Type needs to be transition", "transition")
         transition += vis(c, "Progress", "", c.map { it.transitionProgress }, style)
@@ -387,11 +387,11 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
         editor += vi(
             inspected, "Show Mask", "for debugging purposes; shows the stencil",
             null, showMask, style
-        ) { for (x in c) x.showMask = it }
+        ) { it, _ -> for (x in c) x.showMask = it }
         editor += vi(
             inspected, "Show Masked", "for debugging purposes",
             null, showMasked, style
-        ) { for (x in c) x.showMasked = it }
+        ) { it, _ -> for (x in c) x.showMasked = it }
 
         list += SpyPanel(style) {
             greenScreen.isVisible = type == MaskType.GREEN_SCREEN
@@ -400,31 +400,31 @@ open class MaskLayer(parent: Transform? = null) : GFXTransform(parent) {
 
     }
 
-    override fun readInt(name: String, value: Int) {
-        when (name) {
-            "type" -> type = MaskType.values().firstOrNull { it.id == value } ?: type
-            else -> super.readInt(name, value)
-        }
-    }
-
     override val defaultDisplayName get() = "Mask Layer"
     override val className get() = "MaskLayer"
 
     companion object {
         fun create(mask: List<Transform>?, masked: List<Transform>?): MaskLayer {
             val maskLayer = MaskLayer(null)
-            val mask2 = Transform(maskLayer)
-            mask2.name = "Mask Folder"
+            val maskFolder = Transform(maskLayer)
+            maskFolder.name = "Mask Folder"
             if (mask == null) {
-                Circle(mask2).innerRadius.set(0.5f)
-            } else mask.forEach { mask2.addChild(it) }
-            val masked2 = Transform(maskLayer)
-            masked2.name = "Masked Folder"
+                Circle(maskFolder).innerRadius.set(0.5f)
+            } else {
+                for (child in mask) {
+                    maskFolder.addChild(child)
+                }
+            }
+            val maskedFolder = Transform(maskLayer)
+            maskedFolder.name = "Masked Folder"
             if (masked == null) {
-                Polygon(masked2)
-            } else masked.forEach { masked2.addChild(it) }
+                Polygon(maskedFolder)
+            } else {
+                for (child in masked) {
+                    maskedFolder.addChild(child)
+                }
+            }
             return maskLayer
         }
     }
-
 }
