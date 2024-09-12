@@ -1,12 +1,14 @@
 package me.anno.remsstudio.audio.effects.impl
 
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.audio.effects.Domain
 import me.anno.remsstudio.audio.effects.SoundEffect
 import me.anno.remsstudio.audio.effects.Time
-import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
+import me.anno.remsstudio.objects.video.Video
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
@@ -14,22 +16,28 @@ import java.util.*
 import kotlin.math.log2
 import kotlin.math.min
 
+@Suppress("MemberVisibilityCanBePrivate")
 class EchoEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
 
     var offset = AnimatedProperty.floatPlus(0.1f) // seconds
     var falloff = AnimatedProperty.float01exp(0.4f)
 
-    override fun getStateAsImmutableKey(source: Audio, destination: Camera, time0: Time, time1: Time): Any {
+    override fun getStateAsImmutableKey(source: Video, destination: Camera, time0: Time, time1: Time): Any {
         return offset.toString() + falloff.toString()
     }
 
     override fun createInspector(
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
-        list += audio.vi("Offset", "Distance of 1st echo in seconds", offset, style)
-        list += audio.vi("Falloff", "How much is reflected, the less, the faster the echo fades away", falloff, style)
+        list += audio.vi(
+            "Offset", "Distance of 1st echo in seconds",
+            "echo.offset", offset, style
+        )
+        list += audio.vi(
+            "Falloff", "How much is reflected, the less, the faster the echo fades away",
+            "echo.falloff", falloff, style
+        )
     }
 
     override fun save(writer: BaseWriter) {
@@ -50,7 +58,6 @@ class EchoEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
 
         private const val maxEchoes = 64
         private val randomizedOffsets: FloatArray
-        private const val maxBuffers = 128
         private const val minRelativeAmplitude = 0.0001f
 
         init {
@@ -63,7 +70,7 @@ class EchoEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
     override fun apply(
         getDataSrc: (Int) -> FloatArray,
         dataDst: FloatArray,
-        source: Audio,
+        source: Video,
         destination: Camera,
         time0: Time,
         time1: Time
@@ -78,7 +85,7 @@ class EchoEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
         val echoes = min(maxEchoes, (log2(minRelativeAmplitude) / log2(falloff)).toInt())
         val offset0 = offset[time] * bufferSize / (time1.localTime - time0.localTime)
 
-        copy(getDataSrc(0), dataDst)
+        getDataSrc(0).copyInto(dataDst)
 
         if (echoes > 0 && offset0 > 0.5) {
 
@@ -113,9 +120,7 @@ class EchoEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
             for (i in 0 until bufferSize) {
                 dataDst[i] *= totalMultiplier
             }
-
         }
-
     }
 
     override fun clone(): SoundEffect {

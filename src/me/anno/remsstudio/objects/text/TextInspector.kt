@@ -1,34 +1,35 @@
 package me.anno.remsstudio.objects.text
 
+import me.anno.engine.inspector.Inspectable
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.Selection
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.ui.IsAnimatedWrapper
 import me.anno.remsstudio.ui.IsSelectedWrapper
-import me.anno.engine.inspector.Inspectable
 import me.anno.ui.Style
 import me.anno.ui.base.buttons.TextButton
 import me.anno.ui.base.groups.PanelListY
+import me.anno.ui.base.text.TextPanel
 import me.anno.ui.editor.FontListMenu.createFontInput
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.editor.color.spaces.HSLuv
 import me.anno.ui.input.BooleanInput
 import me.anno.ui.input.TextInputML
+import me.anno.utils.structures.Collections.filterIsInstance2
 import org.joml.Vector3f
 import org.joml.Vector4f
 
 fun Text.createInspectorWithoutSuperImpl(
-    inspected: List<Inspectable>,
-    list: PanelListY,
-    style: Style,
-    getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+    inspected: List<Inspectable>, list: PanelListY, style: Style,
+    getGroup: (NameDesc) -> SettingCategory
 ) {
 
     // todo propagate all changes to shadows
 
-    val t = inspected.filterIsInstance<Transform>()
-    val c = inspected.filterIsInstance<Text>()
+    val t = inspected.filterIsInstance2(Transform::class)
+    val c = inspected.filterIsInstance2(Text::class)
 
     val textInput0 = vis(c, "Text", "", "", c.map { it.text }, style) as IsSelectedWrapper
     list += textInput0
@@ -42,7 +43,7 @@ fun Text.createInspectorWithoutSuperImpl(
         }
     }
 
-    val fontGroup = getGroup("Font", "In what style text is rendered.", "font")
+    val fontGroup = getGroup(NameDesc("Font", "In what style text is rendered.", "obj.font"))
     fontGroup += createFontInput(font.name, style) {
         RemsStudio.largeChange("Change Font to '$it'") {
             for (x in c) for (e in x.getSelfWithShadows()) {
@@ -52,7 +53,10 @@ fun Text.createInspectorWithoutSuperImpl(
         invalidate()
     }.setIsSelectedListener { show(t, null) }
 
-    fontGroup += BooleanInput("Italic", "Chooses a sideways-leaning variant of the font.", font.isItalic, false, style)
+    fontGroup += BooleanInput(
+        NameDesc("Italic", "Chooses a sideways-leaning variant of the font.", "obj.text.italic"),
+        font.isItalic, false, style
+    )
         .setChangeListener {
             RemsStudio.largeChange("Italic: $it") {
                 for (x in c) for (e in x.getSelfWithShadows()) {
@@ -62,7 +66,10 @@ fun Text.createInspectorWithoutSuperImpl(
             invalidate()
         }
         .setIsSelectedListener { show(t, null) }
-    fontGroup += BooleanInput("Bold", "Chooses a thicker variant of the font.", font.isBold, false, style)
+    fontGroup += BooleanInput(
+        NameDesc("Bold", "Chooses a thicker variant of the font.", "obj.text.bold"),
+        font.isBold, false, style
+    )
         .setChangeListener {
             RemsStudio.largeChange("Bold: $it") {
                 for (x in c) for (e in x.getSelfWithShadows()) {
@@ -73,11 +80,11 @@ fun Text.createInspectorWithoutSuperImpl(
         }
         .setIsSelectedListener { show(t, null) }
     fontGroup += BooleanInput(
-        "Small Caps",
-        "This is a hack, where English letters get replaced by an UTF-8 variant in small caps.",
-        smallCaps,
-        false,
-        style
+        NameDesc(
+            "Small Caps",
+            "This is a hack, where English letters get replaced by an UTF-8 variant in small caps.",
+            "obj.text.smallCaps"
+        ), smallCaps, false, style
     ).setChangeListener {
         RemsStudio.largeChange("Small Caps: $it") {
             for (x in c) for (e in x.getSelfWithShadows()) {
@@ -87,7 +94,7 @@ fun Text.createInspectorWithoutSuperImpl(
         invalidate()
     }.setIsSelectedListener { show(t, null) }
 
-    val alignGroup = getGroup("Alignment", "", "alignment")
+    val alignGroup = getGroup(NameDesc("Alignment", "", "obj.alignment"))
     fun align(title: String, ttt: String, value: List<AnimatedProperty<*>>) {
         alignGroup += vis(c, title, ttt, "", value, style)
     }
@@ -105,7 +112,7 @@ fun Text.createInspectorWithoutSuperImpl(
         "This sets the alignment of the whole text block.",
         c.map { it.blockAlignmentY })//, false)// { self, it -> self.blockAlignmentY = it }
 
-    val spaceGroup = getGroup("Spacing", "", "spacing")
+    val spaceGroup = getGroup(NameDesc("Spacing", "", "obj.spacing"))
     // make this element separable from the parent???
     spaceGroup += vi(
         inspected, "Character Spacing",
@@ -140,9 +147,12 @@ fun Text.createInspectorWithoutSuperImpl(
 
     // val ops = getGroup("Operations", "", "operations")
     list += TextButton(
-        "Create Shadow",
-        "This creates a new text object under ourself, where some properties are synced automatically. This allows for higher customizability.\n\n" +
-                "If you want everything to be synced, use the shadow properties at the bottom of this inspector.",
+        NameDesc(
+            "Create Shadow",
+            "This creates a new text object under ourself, where some properties are synced automatically. This allows for higher customizability.\n\n" +
+                    "If you want everything to be synced, use the shadow properties at the bottom of this inspector.",
+            ""
+        ),
         false,
         style
     ).addLeftClickListener {
@@ -164,17 +174,18 @@ fun Text.createInspectorWithoutSuperImpl(
         }
     }
 
-    val rpgEffects = getGroup("RPG Effects", "This effect is for fading in/out letters one by one.", "rpg-effects")
+    val rpgEffects =
+        getGroup(NameDesc("RPG Effects", "This effect is for fading in/out letters one by one.", "obj.rpg-effects"))
     rpgEffects += vis(
-        c, "Start Cursor", "The first character index to be drawn", c.map { it.startCursor },
-        style
+        c, "Start Cursor", "The first character index to be drawn", "text.startCursor",
+        c.map { it.startCursor }, style
     )
     rpgEffects += vis(
-        c, "End Cursor", "The last character index to be drawn; -1 = unlimited", c.map { it.endCursor },
-        style
+        c, "End Cursor", "The last character index to be drawn; -1 = unlimited", "text.endCursor",
+        c.map { it.endCursor }, style
     )
 
-    val outline = getGroup("Outline", "", "outline")
+    val outline = getGroup(NameDesc("Outline", "", "obj.outline"))
     outline.setTooltip("Needs Rendering Mode = SDF or Merged SDF")
     outline += vi(
         inspected, "Rendering Mode",
@@ -219,7 +230,8 @@ fun Text.createInspectorWithoutSuperImpl(
         invalidate()
     }
 
-    val shadows = getGroup("Shadow", "Built-in Shadow", "shadow")
+    val shadows = getGroup(NameDesc("Shadow", "Built-in Shadow", "obj.shadow"))
+    shadows += TextPanel("To enable shadows, change the opacity of the shadow color!", style)
     shadows += vis(c, "Color", "", "shadow.color", c.map { it.shadowColor }, style)
     shadows += vis(c, "Offset", "", "shadow.offset", c.map { it.shadowOffset }, style)
     shadows += vis(c, "Smoothness", "", "shadow.smoothness", c.map { it.shadowSmoothness }, style)

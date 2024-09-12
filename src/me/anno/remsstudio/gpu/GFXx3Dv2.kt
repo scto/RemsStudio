@@ -6,7 +6,6 @@ import me.anno.gpu.GFXState
 import me.anno.gpu.buffer.SimpleBuffer
 import me.anno.gpu.drawing.GFXx3D
 import me.anno.gpu.drawing.GFXx3D.circleParams
-import me.anno.gpu.drawing.UVProjection
 import me.anno.gpu.shader.BaseShader
 import me.anno.gpu.shader.GLSLType
 import me.anno.gpu.shader.Shader
@@ -14,19 +13,25 @@ import me.anno.gpu.shader.ShaderLib
 import me.anno.gpu.shader.builder.ShaderStage
 import me.anno.gpu.shader.builder.Variable
 import me.anno.gpu.shader.builder.VariableMode
-import me.anno.gpu.texture.*
+import me.anno.gpu.texture.Clamping
+import me.anno.gpu.texture.Filtering
+import me.anno.gpu.texture.ITexture2D
+import me.anno.gpu.texture.Texture2D
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.gpu.ShaderLibV2.colorGrading
 import me.anno.remsstudio.gpu.ShaderLibV2.getForceFieldColor
+import me.anno.remsstudio.gpu.ShaderLibV2.getForceFieldColorUniforms
 import me.anno.remsstudio.gpu.ShaderLibV2.getTextureLib
+import me.anno.remsstudio.gpu.ShaderLibV2.getTextureLibUniforms
 import me.anno.remsstudio.gpu.ShaderLibV2.hasForceFieldColor
 import me.anno.remsstudio.gpu.ShaderLibV2.shader3DCircle
 import me.anno.remsstudio.gpu.ShaderLibV2.shader3DText
 import me.anno.remsstudio.objects.GFXTransform
 import me.anno.remsstudio.objects.GFXTransform.Companion.uploadAttractors0
 import me.anno.remsstudio.objects.Transform
-import me.anno.remsstudio.objects.Video
 import me.anno.remsstudio.objects.geometric.Polygon
+import me.anno.remsstudio.objects.video.Video
+import me.anno.remsstudio.video.UVProjection
 import me.anno.utils.Color.white4
 import me.anno.video.formats.gpu.GPUFrame
 import ofx.mio.OpticalFlow
@@ -35,6 +40,7 @@ import org.lwjgl.BufferUtils
 import java.nio.FloatBuffer
 import kotlin.math.min
 
+@Suppress("MemberVisibilityCanBePrivate")
 object GFXx3Dv2 {
 
     fun defineAdvancedGraphicalFeatures(shader: Shader, transform: Transform?, time: Double, is3D: Boolean) {
@@ -110,7 +116,7 @@ object GFXx3Dv2 {
         shader3DUniforms(shader, stack, color)
         shader.v3f("offset", offset)
         GFXTransform.uploadAttractors(that, shader, time, false)
-        mesh.draw(shader, 0)
+        mesh.draw(null, shader, 0)
         GFX.check()
     }
 
@@ -118,27 +124,30 @@ object GFXx3Dv2 {
         val shader = shader3DText.value
         shader.use()
         shader.v3f("offset", offset)
-        mesh.draw(shader, 0)
+        mesh.draw(null, shader, 0)
     }
 
     fun draw3DVideo(
         video: GFXTransform, time: Double,
         stack: Matrix4fArrayList, texture: ITexture2D, color: Vector4f,
-        filtering: TexFiltering, clamping: Clamping, tiling: Vector4f?, uvProjection: UVProjection
+        filtering: TexFiltering, clamping: Clamping, tiling: Vector4f?, uvProjection: UVProjection,
+        cornerRadius: Vector4f
     ) {
-        val shader = get3DShader(GPUFrame.swizzleStages[""]).value
+        val shader = get3DShader(GPUFrame.swizzleStage0).value
         shader.use()
         defineAdvancedGraphicalFeatures(shader, video, time, uvProjection != UVProjection.Planar)
         shader3DUniforms(shader, stack, texture.width, texture.height, color, tiling, filtering, uvProjection)
+        cornerRadius(shader, cornerRadius, texture.width, texture.height)
         texture.bind(0, filtering.convert(), clamping)
-        uvProjection.mesh.draw(shader, 0)
+        uvProjection.mesh.draw(null, shader, 0)
         GFX.check()
     }
 
     fun draw3DVideo(
         video: GFXTransform, time: Double,
         stack: Matrix4fArrayList, v0: GPUFrame, v1: GPUFrame, interpolation: Float, color: Vector4f,
-        filtering: TexFiltering, clamping: Clamping, tiling: Vector4f?, uvProjection: UVProjection
+        filtering: TexFiltering, clamping: Clamping, tiling: Vector4f?, uvProjection: UVProjection,
+        cornerRadius: Vector4f
     ) {
 
         if (!v0.isCreated || !v1.isCreated) throw RuntimeException("Frame must be loaded to be rendered!")
@@ -162,27 +171,35 @@ object GFXx3Dv2 {
         defineAdvancedGraphicalFeatures(shader, video, time, uvProjection != UVProjection.Planar)
         shader3DUniforms(shader, stack, v0.width, v0.height, color, tiling, filtering, uvProjection)
         colorGradingUniforms(video as? Video, time, shader)
+        cornerRadius(shader, cornerRadius, v0.width, v0.height)
         v0.bindUVCorrection(shader)
-        uvProjection.mesh.draw(shader, 0)
+        uvProjection.mesh.draw(null, shader, 0)
         GFX.check()
 
+    }
+
+    private fun cornerRadius(shader: Shader, cornerRadius: Vector4f, w: Int, h: Int) {
+        shader.v4f("cornerRadius", cornerRadius)
+        shader.v2f("cornerSize", 2f * w.toFloat() / h.toFloat(), 2f)
     }
 
     fun draw3DVideo(
         video: GFXTransform, time: Double,
         stack: Matrix4fArrayList, texture: GPUFrame, color: Vector4f,
-        filtering: TexFiltering, clamping: Clamping, tiling: Vector4f?, uvProjection: UVProjection
+        filtering: TexFiltering, clamping: Clamping, tiling: Vector4f?, uvProjection: UVProjection,
+        cornerRadius: Vector4f
     ) {
         if (!texture.isCreated) throw RuntimeException("Frame must be loaded to be rendered!")
         val shader0 = get3DShader(texture)
         val shader = shader0.value
         shader.use()
-        defineAdvancedGraphicalFeatures(shader, video, time,uvProjection != UVProjection.Planar)
+        defineAdvancedGraphicalFeatures(shader, video, time, uvProjection != UVProjection.Planar)
         shader3DUniforms(shader, stack, texture.width, texture.height, color, tiling, filtering, uvProjection)
         colorGradingUniforms(video as? Video, time, shader)
+        cornerRadius(shader, cornerRadius, texture.width, texture.height)
         texture.bind(0, filtering.convert(), clamping)
         texture.bindUVCorrection(shader)
-        uvProjection.mesh.draw(shader, 0)
+        uvProjection.mesh.draw(null, shader, 0)
         GFX.check()
     }
 
@@ -200,7 +217,7 @@ object GFXx3Dv2 {
         shader3DUniforms(shader, stack, texture.width, texture.height, color, null, filtering, null)
         shader.v1f("inset", inset)
         texture.bind(0, filtering.convert(), clamping)
-        buffer.draw(shader, 0)
+        buffer.draw(null, shader, 0)
         GFX.check()
     }
 
@@ -244,14 +261,14 @@ object GFXx3Dv2 {
             buffer.put(colorI.w)
         }
         buffer.position(0)
-        shader.v4Array("colors", buffer)
+        shader.v4fs("colors", buffer)
         buffer.position(0)
         for (i in 0 until cc) {
             buffer.put(distances[i])
             buffer.put(smoothness[i])
         }
         buffer.position(0)
-        shader.v2Array("distSmoothness", buffer)
+        shader.v2fs("distSmoothness", buffer)
         shader.v1i("colorCount", cc)
         shader.v1f("depth", depth * 0.00001f)
 
@@ -274,7 +291,7 @@ object GFXx3Dv2 {
         texture.bind(0, Filtering.LINEAR, Clamping.CLAMP)
         // if we have a force field applied, subdivide the geometry
         val buffer = if (hasUVAttractors) SimpleBuffer.flat01CubeX10 else SimpleBuffer.flat01Mesh
-        buffer.draw(shader, 0)
+        buffer.draw(null, shader, 0)
         GFX.check()
     }
 
@@ -323,7 +340,7 @@ object GFXx3Dv2 {
         defineAdvancedGraphicalFeatures(shader, that, time, false)
         shader3DUniforms(shader, stack, 1, 1, color, null, TexFiltering.NEAREST, null)
         circleParams(innerRadius, startDegrees, endDegrees, shader)
-        circleData.draw(shader, 0)
+        circleData.draw(null, shader, 0)
         GFX.check()
     }
 
@@ -379,11 +396,11 @@ object GFXx3Dv2 {
         stack: Matrix4fArrayList, texture: Texture2D, w: Int, h: Int, color: Vector4f,
         filtering: TexFiltering, clamping: Clamping, tiling: Vector4f?, uvProjection: UVProjection
     ) {
-        val shader = get3DShader(GPUFrame.swizzleStages[""]).value
+        val shader = get3DShader(GPUFrame.swizzleStage0).value
         shader.use()
         shader3DUniforms(shader, stack, w, h, color, tiling, filtering, uvProjection)
         texture.bind(0, filtering.convert(), clamping)
-        uvProjection.mesh.draw(shader, 0)
+        uvProjection.mesh.draw(null, shader, 0)
         GFX.check()
     }
 
@@ -397,7 +414,10 @@ object GFXx3Dv2 {
         return shaderMap3d.getOrPut(key) {
             ShaderLib.createShader(
                 "3dx-$javaClass", ShaderLib.v3Dl, ShaderLib.v3D, ShaderLib.y3D,
-                key.variables.filter { !it.isOutput } + listOf(
+                key.variables.filter { !it.isOutput } +
+                        getForceFieldColorUniforms + getTextureLibUniforms + listOf(
+                    Variable(GLSLType.V4F, "cornerRadius"),
+                    Variable(GLSLType.V2F, "cornerSize"),
                     Variable(GLSLType.V3F, "finalColor", VariableMode.OUT),
                     Variable(GLSLType.V1F, "finalAlpha", VariableMode.OUT),
                 ), "" +
@@ -405,22 +425,30 @@ object GFXx3Dv2 {
                         getForceFieldColor +
                         ShaderLib.brightness +
                         colorGrading +
+                        "float sdRoundedBox(vec2 p, vec2 b, vec4 r){\n" +
+                        "   vec2 rxy = (p.x>0.0) ? r.xy : r.zw;\n" +
+                        "   float rx = (p.y>0.0) ? rxy.x  : rxy.y;\n" +
+                        "   vec2 q = abs(p)-b+rx;\n" +
+                        "   return min(max(q.x,q.y),0.0) + length(max(q,0.0)) - rx;\n" +
+                        "}\n" +
                         "void main(){\n" +
                         "   vec2 uvR = getProjectedUVs(uv, uvw, -1.0);\n" +
                         "   vec2 uvG = getProjectedUVs(uv, uvw,  0.0);\n" +
                         "   vec2 uvB = getProjectedUVs(uv, uvw, +1.0);\n" +
                         "   vec2 finalUV;\n" +
                         "   vec4 color; vec3 result = vec3(1.0);\n" +
-                        "   {\n finalUV = uvR;\n" + key.body +  "}\n" +
+                        "   {\n finalUV = uvR;\n" + key.body + "}\n" +
                         "   result.r = color.r;\n" +
-                        "   {\n finalUV = uvB;\n" + key.body +  "}\n" +
+                        "   {\n finalUV = uvB;\n" + key.body + "}\n" +
                         "   result.b = color.b;\n" +
-                        "   {\n finalUV = uvG;\n" + key.body +  "}\n" + // + alpha
+                        "   {\n finalUV = uvG;\n" + key.body + "}\n" + // + alpha
                         "   result.g = color.g;\n" +
                         "   color.rgb = colorGrading(result.rgb);\n" +
                         "   if($hasForceFieldColor) color *= getForceFieldColor(finalPosition);\n" +
+                        "   vec2 cornerUV = (uv-0.5) * cornerSize;\n" +
+                        "   float cornerSDF = sdRoundedBox(cornerUV, cornerSize * 0.5, cornerRadius);\n" +
                         "   finalColor = color.rgb;\n" +
-                        "   finalAlpha = color.a;\n" +
+                        "   finalAlpha = color.a * clamp(0.5 - cornerSDF / length(vec4(dFdx(cornerUV),dFdy(cornerUV))), 0.0, 1.0);\n" +
                         "}", listOf("tex")
             )
         }

@@ -29,6 +29,7 @@ import me.anno.utils.Color.mixARGB
 import org.apache.logging.log4j.LogManager
 import kotlin.concurrent.thread
 
+@Suppress("MemberVisibilityCanBePrivate")
 class SceneTab(var file: FileReference, var scene: Transform, history: History?) : TextPanel("", DefaultConfig.style) {
 
     companion object {
@@ -38,7 +39,7 @@ class SceneTab(var file: FileReference, var scene: Transform, history: History?)
 
     var history = history ?: try {
         // todo find project for file
-        JsonStringReader.readFirstOrNull<History>(file, workspace)!!
+        JsonStringReader.readFirstOrNull(file, workspace, History::class)!!
     } catch (e: java.lang.Exception) {
         History()
     }
@@ -96,7 +97,7 @@ class SceneTab(var file: FileReference, var scene: Transform, history: History?)
     }
 
     fun save(dst: FileReference, onSuccess: () -> Unit) {
-        if (dst.isDirectory) dst.deleteRecursively()
+        if (dst.isDirectory) dst.delete()
         LOGGER.info("Saving $dst, ${scene.listOfAll.joinToString { it.name }}")
         thread(name = "SaveScene") {
             try {

@@ -26,7 +26,7 @@ import me.anno.remsstudio.Selection.selectTransform
 import me.anno.remsstudio.Selection.selectedTransforms
 import me.anno.remsstudio.animation.Keyframe
 import me.anno.remsstudio.objects.Transform
-import me.anno.remsstudio.objects.Video
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.ui.MenuUtils.drawTypeInCorner
 import me.anno.remsstudio.ui.StudioFileImporter.addChildFromFile
 import me.anno.remsstudio.ui.editor.TimelinePanel
@@ -42,6 +42,7 @@ import me.anno.video.VideoCache
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+@Suppress("MemberVisibilityCanBePrivate")
 class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
 
     // todo display name?
@@ -235,11 +236,6 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
         return bestTransform
     }
 
-    // done hold / move up/down / move sideways
-    // done right click cut
-    // done move start/end times
-    // done highlight the hovered panel?
-
     override fun onKeyDown(x: Float, y: Float, key: Key) {
         if (key == Key.BUTTON_LEFT) {
             var draggedTransform = getTransformAt(x, y)
@@ -271,7 +267,7 @@ class LayerView(val timelineSlot: Int, style: Style) : TimelinePanel(style) {
         RemsStudio.largeChange("Deleted Component") {
             for (selectedTransform in selectedTransforms)
                 selectedTransform.destroy()
-            select(emptyList<Transform>(), null)
+            select(emptyList(), emptyList())
         }
     }
 

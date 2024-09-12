@@ -1,7 +1,7 @@
 package me.anno.remsstudio.ui.scene
 
 import me.anno.engine.EngineBase.Companion.workspace
-import me.anno.io.Saveable
+import me.anno.io.saveable.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
@@ -27,13 +27,13 @@ class SceneTabData() : Saveable() {
     fun apply(tab: SceneTab) {
         tab.file = file
         val read by lazy { JsonStringReader.read(file, workspace, true) }
-        tab.scene = transform ?: read.firstInstanceOrNull<Transform>() ?: Transform().run {
+        tab.scene = transform ?: read.firstInstanceOrNull(Transform::class) ?: Transform().run {
             // todo translate
             name = "Root"
             comment = "Error loading $file!"
             this
         }
-        tab.history = history ?: read.firstInstanceOrNull<History>() ?: tab.history
+        tab.history = history ?: read.firstInstanceOrNull(History::class) ?: tab.history
     }
 
     override fun save(writer: BaseWriter) {

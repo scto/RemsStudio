@@ -1,6 +1,5 @@
 package me.anno.remsstudio.ui.editor
 
-import me.anno.config.DefaultConfig.defaultFont
 import me.anno.config.DefaultStyle
 import me.anno.fonts.FontManager
 import me.anno.fonts.keys.TextCacheKey
@@ -34,7 +33,6 @@ import me.anno.ui.custom.CustomContainer.Companion.isCross
 import me.anno.utils.Color.black
 import me.anno.utils.Color.mixARGB
 import me.anno.utils.Color.mulAlpha
-import me.anno.utils.structures.tuples.Quad
 import me.anno.utils.types.Strings.formatTime
 import kotlin.collections.set
 import kotlin.math.abs
@@ -44,10 +42,13 @@ import kotlin.math.sqrt
 
 // todo subpixel adjusted lines, only if subpixel rendering affects x-axis
 
+@Suppress("MemberVisibilityCanBePrivate")
 open class TimelinePanel(style: Style) : Panel(style) {
 
+    data class VisState(val dt: Double, val ct: Double, val et: Double, val td: Double)
+
     override fun getVisualState(): Any? =
-        Quad(dtHalfLength, centralTime, editorTime, targetDuration)
+        VisState(dtHalfLength, centralTime, editorTime, targetDuration)
 
     var drawnStrings = ArrayList<TextCacheKey>(64)
 
@@ -59,7 +60,7 @@ open class TimelinePanel(style: Style) : Panel(style) {
         drawTimeAxis(x0, y0, x1, y1, true)
     }
 
-    val font = style.getFont("tinyText", defaultFont)
+    val font = style.getFont("tinyText")
     val fontColor = style.getColor("textColor", DefaultStyle.fontGray)
     val endColor = style.getColor("endColor", mixARGB(fontColor, 0xffff0000.toInt(), 0.5f))
 
@@ -181,10 +182,10 @@ open class TimelinePanel(style: Style) : Panel(style) {
             timestampCache[key] = solution
             return solution
         }
-    }
 
-    fun normTime01(time: Double) = (time - centralTime) / dtHalfLength * 0.5 + 0.5
-    fun normAxis11(lx: Float, x0: Int, size: Int) = (lx - x0) / size * 2f - 1f
+        fun normTime01(time: Double) = (time - centralTime) / dtHalfLength * 0.5 + 0.5
+        fun normAxis11(lx: Float, x0: Int, size: Int) = (lx - x0) / size * 2f - 1f
+    }
 
     fun getTimeAt(mx: Float) = centralTime + dtHalfLength * normAxis11(mx, x, width)
     fun getXAt(time: Double) = x + width * normTime01(time)

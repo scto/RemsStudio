@@ -11,11 +11,12 @@ import me.anno.io.MediaMetadata
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.max
 import me.anno.maths.Maths.nonNegativeModulo
-import me.anno.remsstudio.RemsStudio.nullCamera
+import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.audio.AudioFXCache2
 import me.anno.remsstudio.audio.AudioFXCache2.SPLITS
 import me.anno.remsstudio.objects.Transform
-import me.anno.remsstudio.objects.Video
+import me.anno.remsstudio.objects.video.Video
+import me.anno.remsstudio.objects.video.VideoPreview.getFrameAtLocalTimeForPreview
 import me.anno.remsstudio.ui.editor.TimelinePanel.Companion.centralTime
 import me.anno.remsstudio.ui.editor.TimelinePanel.Companion.dtHalfLength
 import me.anno.remsstudio.ui.editor.cutting.LayerView.Companion.maxLines
@@ -87,13 +88,14 @@ class LayerStripeSolution(
         val xTimeCorrection = ((referenceTime - centralTime) * w / (dtHalfLength * 2)).roundToInt()
         val timeOffset = (-centralTime / (2f * dtHalfLength) * w).toInt()
 
-        for ((lineIndex, gradients) in lines.withIndex()) {
+        for (lineIndex in lines.indices) {
+            val gradients = lines[lineIndex]
 
             val y0 = y + 3 + lineIndex * 3
             val h0 = h - 10
 
-            for (gradient in gradients) {
-
+            for (j in gradients.indices) {
+                val gradient = gradients[j]
                 val tr = gradient.owner as? Transform
                 val isStriped = selectedTransform === tr || draggedTransform === tr
 
@@ -181,8 +183,7 @@ class LayerStripeSolution(
                     // todo get auto levels for pixels, which equal ranges of audio frames -> min, max, avg?, with weight?
                     val identifier = audio.toString()
 
-                    // todo get used camera instead of nullCamera
-                    val camera = nullCamera!!
+                    val camera = RemsStudio.currentCamera
 
                     val color = if (hasVideo) 0xaa777777.toInt() else 0xff777777.toInt()
                     val mix = 0.5f
@@ -271,9 +272,6 @@ class LayerStripeSolution(
     private fun getCenterX(x0: Int, frameOffset: Int, frameWidth: Int) =
         x0 - nonNegativeModulo(x0 - frameOffset, frameWidth) + frameWidth / 2
 
-    // todo bug: it's invisible, if video is not loaded
-    // todo bug: when clicked, it changes the frames shortly
-
     private fun drawVideo(
         x0: Int, x1: Int, y: Int, h: Int,
         c0: Int, c1: Int,
@@ -292,7 +290,7 @@ class LayerStripeSolution(
             val localTime = clampTime(video.getLocalTimeFromRoot(timeAtX, false), video)
             // get frame at time
             val videoWidth = (frameWidth / (1f + relativeVideoBorder)).toInt()
-            val frame = video.getFrameAtLocalTime(localTime, videoWidth, meta)
+            val frame = video.getFrameAtLocalTimeForPreview(localTime, videoWidth, meta)
             if (frame == null || !frame.isCreated) {
                 drawRectGradient(x0, y, x1 - x0, h, c0, c1)
             } else {
@@ -329,7 +327,7 @@ class LayerStripeSolution(
             val localTime = clampTime(video.getLocalTimeFromRoot(timeAtX, false), video)
             // get frame at time
             val videoWidth = (frameWidth / (1f + relativeVideoBorder)).toInt()
-            video.getFrameAtLocalTime(localTime, videoWidth, meta)
+            video.getFrameAtLocalTimeForPreview(localTime, videoWidth, meta)
         }
     }
 

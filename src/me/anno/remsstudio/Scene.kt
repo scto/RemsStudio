@@ -3,7 +3,6 @@ package me.anno.remsstudio
 import me.anno.config.DefaultConfig
 import me.anno.gpu.DepthMode
 import me.anno.gpu.GFX
-import me.anno.gpu.GFX.flat01
 import me.anno.gpu.GFX.isFinalRendering
 import me.anno.gpu.GFXState
 import me.anno.gpu.GFXState.blendMode
@@ -13,6 +12,7 @@ import me.anno.gpu.GFXState.renderDefault
 import me.anno.gpu.GFXState.renderPurely
 import me.anno.gpu.GFXState.useFrame
 import me.anno.gpu.blending.BlendMode
+import me.anno.gpu.buffer.SimpleBuffer
 import me.anno.gpu.drawing.DrawRectangles.drawRect
 import me.anno.gpu.framebuffer.DepthBufferType
 import me.anno.gpu.framebuffer.FBStack
@@ -60,6 +60,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+@Suppress("MemberVisibilityCanBePrivate")
 object Scene {
 
     var nearZ = 0.001f
@@ -206,7 +207,7 @@ object Scene {
         get() = if (isFinalRendering) DefaultConfig["rendering.useMSAA", true]
         else DefaultConfig["ui.editor.useMSAA", gfxSettings.data["ui.editor.useMSAA", true]]
 
-    // rendering must be done in sync with the rendering thread (OpenGL limitation) anyways, so one object is enough
+    // rendering must be done in sync with the rendering thread (OpenGL limitation) anyway, so one object is enough
     val stack = Matrix4fArrayList()
     fun draw(
         camera: Camera, scene: Transform,
@@ -396,13 +397,13 @@ object Scene {
 
         /**
          * apply the LUT for sepia looks, cold looks, general color correction, ...
-         * uses the Unreal Engine "format" of an 256x16 image (or 1024x32)
+         * uses the Unreal Engine "format" of a 256x16 image (or 1024x32)
          * */
         val lutShader = lutShader.value
         lutShader.use()
         lut.bind(1, Filtering.LINEAR, Clamping.CLAMP)
         lutBuffer.bindTextures(0, Filtering.TRULY_NEAREST, Clamping.CLAMP)
-        flat01.draw(lutShader)
+        SimpleBuffer.flat01.draw(lutShader)
         GFX.check()
 
     }
@@ -434,7 +435,7 @@ object Scene {
             val shader = addBloomShader.value
             shader.use()
             shader.v1f("intensity", bloomIntensity)
-            flat01.draw(shader)
+            SimpleBuffer.flat01.draw(shader)
         }
 
         return bloomed
@@ -446,12 +447,9 @@ object Scene {
         camera: Camera, cameraTime: Double,
         w: Int, h: Int, flipY: Boolean
     ) {
-
         /**
          * Tone Mapping, Distortion, and applying the sqrt operation (reverse pow(, 2.2))
          * */
-
-        // outputTexture.bind(0, true)
 
         // todo render at higher resolution for extreme distortion?
         // msaa should help, too
@@ -468,9 +466,8 @@ object Scene {
         uploadCameraUniforms(shader, isFakeColorRendering, camera, cameraTime, w, h)
 
         // draw it!
-        flat01.draw(shader)
+        SimpleBuffer.flat01.draw(shader)
         GFX.check()
-
     }
 
     private fun uploadCameraUniforms(

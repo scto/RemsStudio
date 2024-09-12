@@ -2,27 +2,28 @@ package me.anno.remsstudio.cli
 
 import me.anno.Engine
 import me.anno.Time
-import me.anno.cache.Cache
+import me.anno.cache.CacheSection
 import me.anno.engine.Events.workEventTasks
 import me.anno.gpu.GFX
+import me.anno.gpu.GPUTasks.workGPUTasks
 import me.anno.gpu.framebuffer.Frame
-import me.anno.gpu.hidden.HiddenOpenGLContext
-import me.anno.gpu.shader.ShaderLib
 import me.anno.gpu.texture.Texture2D
 import me.anno.gpu.texture.Texture2D.Companion.bindTexture
 import me.anno.installer.Installer
 import me.anno.io.config.ConfigBasics
+import me.anno.io.files.FileRootRef
 import me.anno.io.files.InvalidRef
 import me.anno.io.files.Reference.getReference
 import me.anno.io.json.saveable.JsonStringReader
+import me.anno.jvm.HiddenOpenGLContext
+import me.anno.jvm.utils.CommandLineUtils.parseDouble
+import me.anno.jvm.utils.CommandLineUtils.parseFloat
+import me.anno.jvm.utils.CommandLineUtils.parseInt
 import me.anno.remsstudio.*
 import me.anno.remsstudio.gpu.ShaderLibV2
 import me.anno.remsstudio.objects.Transform
-import me.anno.utils.CommandLineUtils.parseDouble
-import me.anno.utils.CommandLineUtils.parseFloat
-import me.anno.utils.CommandLineUtils.parseInt
 import me.anno.utils.Sleep.sleepABit
-import me.anno.utils.types.Strings.getImportType
+import me.anno.utils.types.Strings.getImportTypeByExtension
 import me.anno.utils.types.Strings.isBlank2
 import me.anno.utils.types.Strings.parseTimeOrNull
 import org.apache.commons.cli.*
@@ -30,6 +31,7 @@ import org.apache.logging.log4j.LogManager
 import org.lwjgl.opengl.GL11C
 import java.util.*
 
+@Suppress("MemberVisibilityCanBePrivate")
 object RemsCLI {
 
     @JvmStatic
@@ -77,10 +79,10 @@ object RemsCLI {
         } else return error("Input needs to be defined")
 
         // find project above scene source
-        var project0 = getReference(sceneSourceFile).getParent() ?: InvalidRef
+        var project0 = getReference(sceneSourceFile).getParent()
         var project1 = project0
-        while (true) {
-            project1 = project1.getParent() ?: break
+        while (project1 != InvalidRef && project1 != FileRootRef) {
+            project1 = project1.getParent()
             if (project1.getChild("config.json").exists &&
                 project1.getChild("tabs.json").exists
             ) {
@@ -96,7 +98,7 @@ object RemsCLI {
         init()
 
         val scene = try {
-            JsonStringReader.readFirstOrNull<Transform>(sceneSourceFile, project0, true)
+            JsonStringReader.readFirstOrNull(sceneSourceFile, project0, Transform::class)
                 ?: return error("Could not find scene")
         } catch (e: RuntimeException) {
             e.printStackTrace()
@@ -126,7 +128,7 @@ object RemsCLI {
                 "image" -> Rendering.RenderType.FRAME
                 else -> return error("Unknown type $type")
             }
-        } else when (outputFile.extension.getImportType()) {
+        } else when (getImportTypeByExtension(outputFile.lcExtension)) {
             "Video" -> Rendering.RenderType.VIDEO
             "Audio" -> Rendering.RenderType.AUDIO
             else -> Rendering.RenderType.FRAME
@@ -187,13 +189,13 @@ object RemsCLI {
             Texture2D.destroyTextures()
             GFX.resetFBStack()
             Time.updateTime()
-            Cache.update()
+            CacheSection.updateAll()
             bindTexture(GL11C.GL_TEXTURE_2D, 0)
             // BlendDepth.reset()
             GL11C.glDisable(GL11C.GL_CULL_FACE)
             GFX.check()
             Frame.reset()
-            GFX.workGPUTasks(false)
+            workGPUTasks(false)
             workEventTasks()
             sleepABit(true)
         }
@@ -212,7 +214,6 @@ object RemsCLI {
         // good size? mmh...
         HiddenOpenGLContext.setSize(2048, 2048)
         HiddenOpenGLContext.createOpenGL()
-        ShaderLib.init()
         ShaderLibV2.init()
     }
 

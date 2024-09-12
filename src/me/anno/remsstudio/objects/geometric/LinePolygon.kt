@@ -3,9 +3,9 @@ package me.anno.remsstudio.objects.geometric
 import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX
 import me.anno.gpu.drawing.GFXx3D
-import me.anno.gpu.drawing.UVProjection
 import me.anno.gpu.shader.Shader
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths
 import me.anno.maths.Maths.clamp
 import me.anno.remsstudio.RemsStudio
@@ -15,15 +15,16 @@ import me.anno.remsstudio.objects.GFXTransform
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.attractors.EffectColoring
 import me.anno.remsstudio.objects.attractors.EffectMorphing
+import me.anno.remsstudio.video.UVProjection
 import me.anno.ui.Style
 import me.anno.ui.base.buttons.TextButton
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
+import me.anno.utils.structures.Collections.filterIsInstance2
 import org.joml.Matrix4f
 import org.joml.Matrix4fArrayList
 import org.joml.Vector3f
 import org.joml.Vector4f
-import java.net.URL
 import kotlin.math.floor
 
 /**
@@ -31,6 +32,7 @@ import kotlin.math.floor
  * creates an outline shape, which can be animated
  * like https://youtu.be/ToTWaZtGOj8?t=87 (1:27, Linus Tech Tips, Upload date Apr 28, 2021)
  * */
+@Suppress("MemberVisibilityCanBePrivate")
 class LinePolygon(parent: Transform? = null) : GFXTransform(parent) {
 
     // todo if closed, modulo positions make sense, so a line could swirl around multiple times
@@ -68,23 +70,33 @@ class LinePolygon(parent: Transform? = null) : GFXTransform(parent) {
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<LinePolygon>()
-        val group = getGroup("Line", "Properties of the line", "line")
-        group += vis(c, "Segment Start", "", c.map { it.segmentStart }, style)
-        group += vis(c, "Segment Length", "", c.map { it.segmentLength }, style)
-        group += vis(c, "Line Strength", "", c.map { it.lineStrength }, style)
-        group += vis(c, "Is Closed", "", c.map { it.isClosed }, style)
+        val c = inspected.filterIsInstance2(LinePolygon::class)
+        val group = getGroup(NameDesc("Line", "Properties of the line", "obj.line"))
         group += vis(
-            c, "Fading", "How much the last points fade, if the offsets exclude everything", c.map { it.fadingOnEnd },
-            style
+            c, "Segment Start", "", "line.segmentStart",
+            c.map { it.segmentStart }, style
         )
-        group += TextButton("Copy 1st child's scale to all", false, style).addLeftClickListener {
+        group += vis(
+            c, "Segment Length", "", "line.segmentLength",
+            c.map { it.segmentLength }, style
+        )
+        group += vis(
+            c, "Line Strength", "Thickness of the line", "line.lineStrength",
+            c.map { it.lineStrength }, style
+        )
+        group += vis(
+            c, "Is Closed", "Whether the start shall be connected to the end automatically", "line.isClosed",
+            c.map { it.isClosed }, style
+        )
+        group += vis(
+            c, "Fading", "How much the last points fade, if the offsets exclude everything", "line.fading",
+            c.map { it.fadingOnEnd }, style
+        )
+        group += TextButton(NameDesc("Copy 1st child's scale to all"), false, style).addLeftClickListener {
             RemsStudio.largeChange("Copy first's scale") {
                 for (ci in c) {
                     val cis = ci.children
@@ -265,7 +277,7 @@ class LinePolygon(parent: Transform? = null) : GFXTransform(parent) {
         shader.v4f("col0", c0)
         shader.v4f("col1", c1)
         shader.v4f("finalId", clickId)
-        UVProjection.Planar.mesh.draw(shader, 0)
+        UVProjection.Planar.mesh.draw(null, shader, 0)
         GFX.check()
     }
 

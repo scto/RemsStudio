@@ -1,29 +1,33 @@
 package me.anno.remsstudio.objects.particles.forces
 
 import me.anno.config.DefaultConfig
+import me.anno.engine.inspector.Inspectable
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.Transform
-import me.anno.remsstudio.objects.particles.forces.impl.*
 import me.anno.remsstudio.objects.inspectable.InspectableAnimProperty
 import me.anno.remsstudio.objects.models.ArrowModel
 import me.anno.remsstudio.objects.particles.Particle
 import me.anno.remsstudio.objects.particles.ParticleState
 import me.anno.remsstudio.objects.particles.ParticleSystem
-import me.anno.engine.inspector.Inspectable
+import me.anno.remsstudio.objects.particles.forces.impl.*
+import me.anno.remsstudio.ui.ComponentUIV2
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelList
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.editor.sceneView.Grid
 import me.anno.ui.editor.stacked.Option
-import me.anno.ui.Style
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.types.Floats.toRadians
 import org.joml.*
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.floor
 
+@Suppress("MemberVisibilityCanBePrivate")
 abstract class ForceField(val displayName: String, val descriptionI: String) : Transform() {
 
     constructor(displayName: String, description: String, dictSubPath: String) :
@@ -45,35 +49,42 @@ abstract class ForceField(val displayName: String, val descriptionI: String) : T
 
     open fun listProperties() = listOf(
         // include it for convenience
-        InspectableAnimProperty(strength, "Strength", "How much effect this force has")
+        InspectableAnimProperty(
+            strength, NameDesc(
+                "Strength",
+                "How much effect this force has",
+                "obj.effect.forceStrength"
+            )
+        )
     )
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        createInspector(inspected.filterIsInstance<ForceField>(), getGroup("Force Field", "", "forces").content, style)
+        createInspector2(
+            inspected.filterIsInstance2(ForceField::class),
+            getGroup(NameDesc("Force Field", "", "obj.forces")).content, style
+        )
     }
 
-    fun createInspector(inspected: List<ForceField>, list: PanelList, style: Style) {
+    fun createInspector2(inspected: List<ForceField>, list: PanelList, style: Style) {
         val properties = HashMap<Pair<ForceField, String>, AnimatedProperty<*>>()
         for (ins in inspected) {
             for (p in ins.listProperties()) {
-                properties[Pair(ins, p.title)] = p.value
+                properties[Pair(ins, p.nameDesc.key)] = p.value
             }
         }
         for (property in listProperties()) {
-            val title = property.title
+            val title = property.nameDesc.key
             val matching = inspected.mapNotNull {
                 val p = properties[Pair(it, title)]
                 if (p != null) Pair(it, p) else null
             }
-            list += vis(
-                matching.map { it.first }, property.title, property.description, matching.map { it.second },
-                style
+            list += ComponentUIV2.vis(
+                matching.map { it.first }, property.nameDesc.name, property.nameDesc.desc, property.nameDesc.key,
+                matching.map { it.second }, style
             )
         }
     }
@@ -99,7 +110,7 @@ abstract class ForceField(val displayName: String, val descriptionI: String) : T
                     stack.translate(position)
                     applyTransform(particle, index0, indexF)
                     Grid.drawLineMesh(
-                        stack, Vector4f(color.x, color.y, color.z, color.w * opacity),
+                        null, stack, Vector4f(color.x, color.y, color.z, color.w * opacity),
                         ArrowModel.arrowLineModel
                     )
                 }
@@ -153,9 +164,7 @@ abstract class ForceField(val displayName: String, val descriptionI: String) : T
 
         fun option(generator: () -> ForceField): Option {
             val sample = generator()
-            return Option(sample.displayName, sample.description) {
-                generator()
-            }
+            return Option(NameDesc(sample.displayName, sample.description, ""), generator)
         }
 
         fun getForceFields() = listOf(

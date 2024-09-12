@@ -1,8 +1,7 @@
 package me.anno.remsstudio.ui.input
 
-import me.anno.input.Key
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.animation.AnimatedProperty
-import me.anno.remsstudio.ui.input.components.NumberInputComponentV2
 import me.anno.ui.Style
 import me.anno.ui.input.FloatInput
 import me.anno.ui.input.NumberType
@@ -11,9 +10,8 @@ import me.anno.utils.types.AnyToFloat
 import org.joml.*
 
 class FloatInputV2(
-    style: Style, title: String, visibilityKey: String,
-    type: NumberType,
-    private val owningProperty: AnimatedProperty<*>
+    title: NameDesc, visibilityKey: String, type: NumberType,
+    private val owningProperty: AnimatedProperty<*>, style: Style
 ) : FloatInput(
     title, visibilityKey, type, style,
     NumberInputComponentV2(owningProperty, visibilityKey, style),
@@ -22,23 +20,16 @@ class FloatInputV2(
     private val indexInProperty get() = indexInParent
 
     constructor(
-        title: String,
+        title: NameDesc,
         visibilityKey: String,
         owningProperty: AnimatedProperty<*>,
-        time: Double,
-        style: Style
-    ) : this(style, title, visibilityKey, owningProperty.type, owningProperty) {
+        time: Double, style: Style
+    ) : this(title, visibilityKey, owningProperty.type, owningProperty, style) {
         when (val value = owningProperty[time]) {
             is Float -> setValue(value, false)
             is Double -> setValue(value, false)
             else -> throw RuntimeException("Unknown type $value for ${javaClass.simpleName}")
         }
-    }
-
-    override fun onMouseClicked(x: Float, y: Float, button: Key, long: Boolean) {
-        if (button != Key.BUTTON_LEFT || long) {
-            inputPanel.onMouseClicked(x, y, button, long)
-        } else super.onMouseClicked(x, y, button, false)
     }
 
     override fun getValue(value: Any): Double {
@@ -59,7 +50,7 @@ class FloatInputV2(
     }
 
     override fun clone(): FloatInputV2 {
-        val clone = FloatInputV2(style, title, visibilityKey, type, owningProperty)
+        val clone = FloatInputV2(title, visibilityKey, type, owningProperty, style)
         copyInto(clone)
         return clone
     }

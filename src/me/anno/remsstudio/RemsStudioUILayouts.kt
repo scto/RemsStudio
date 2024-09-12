@@ -1,9 +1,12 @@
 package me.anno.remsstudio
 
 import me.anno.config.DefaultConfig
+import me.anno.engine.RemsEngine.Companion.openConfigWindow
+import me.anno.engine.RemsEngine.Companion.openStylingWindow
 import me.anno.engine.projects.Projects.getRecentProjects
 import me.anno.extensions.ExtensionLoader
 import me.anno.gpu.GFX
+import me.anno.input.ActionManager
 import me.anno.input.Key
 import me.anno.io.config.ConfigBasics
 import me.anno.language.translation.Dict
@@ -26,7 +29,6 @@ import me.anno.remsstudio.ui.scene.StudioSceneView
 import me.anno.remsstudio.ui.sceneTabs.SceneTabs
 import me.anno.ui.Panel
 import me.anno.ui.Style
-import me.anno.ui.WindowStack.Companion.createReloadWindow
 import me.anno.ui.base.SpacerPanel
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.base.menu.Menu.askName
@@ -39,7 +41,6 @@ import me.anno.ui.custom.CustomList
 import me.anno.ui.debug.ConsoleOutputPanel.Companion.createConsoleWithStats
 import me.anno.ui.editor.OptionBar
 import me.anno.ui.editor.WelcomeUI
-import me.anno.ui.editor.config.ConfigPanel
 import me.anno.ui.editor.files.FileNames.toAllowedFilename
 import me.anno.utils.files.OpenFileExternally.openInBrowser
 import me.anno.utils.files.OpenFileExternally.openInExplorer
@@ -52,8 +53,6 @@ object RemsStudioUILayouts {
     private val LOGGER = LogManager.getLogger(RemsStudioUILayouts::class)
 
     fun createEditorUI(welcomeUI: WelcomeUI, loadUI: Boolean = true) {
-
-        // todo Alt + Letter = pseudo-click on menu
 
         val style = DefaultConfig.style
         val ui = PanelListY(style)
@@ -73,17 +72,13 @@ object RemsStudioUILayouts {
 
         // todo complete translation
         options.addAction(configTitle, Dict["Settings", "ui.top.config.settings"]) {
-            val panel = ConfigPanel(DefaultConfig, false, style)
-            val window = createReloadWindow(panel, transparent = false, fullscreen = true) { createEditorUI(welcomeUI) }
-            panel.create()
-            windowStack.push(window)
+            openConfigWindow(windowStack)
         }
-
         options.addAction(configTitle, Dict["Style", "ui.top.config.style"]) {
-            val panel = ConfigPanel(DefaultConfig.style.values, true, style)
-            val window = createReloadWindow(panel, transparent = false, fullscreen = true) { createEditorUI(welcomeUI) }
-            panel.create()
-            windowStack.push(window)
+            openStylingWindow(windowStack)
+        }
+        options.addAction(configTitle, Dict["Keymap", "ui.top.config.keymap"]) {
+            openConfigWindow(windowStack, ActionManager, false)
         }
 
         options.addAction(configTitle, Dict["BPM Snap Settings", "ui.top.config.bpmSnapping"]) {
@@ -91,7 +86,14 @@ object RemsStudioUILayouts {
         }
 
         options.addAction(configTitle, Dict["Language", "ui.top.config.language"]) {
-            Dict.selectLanguage(style).onMouseClicked(windowStack.mouseX, windowStack.mouseY, Key.BUTTON_LEFT, false)
+            val tmp = Dict.selectLanguage(style) {
+                val project = project
+                if (project != null) {
+                    RemsStudio.openProject(RemsStudio, project.name, project.file)
+                }
+            }
+            tmp.window = windowStack.peek()
+            tmp.onMouseClicked(windowStack.mouseX, windowStack.mouseY, Key.BUTTON_LEFT, false)
         }
 
         options.addAction(configTitle, Dict["Open Config Folder", "ui.top.config.openFolder"]) {
@@ -120,13 +122,8 @@ object RemsStudioUILayouts {
          * Debugging
          * */
         options.addAction(debugTitle, "Reload Cache (Ctrl+F5)") { RemsStudio.clearAll() }
-        options.addAction(debugTitle, "Clear Cache") { ConfigBasics.cacheFolder.deleteRecursively() }
+        options.addAction(debugTitle, "Clear Cache") { ConfigBasics.cacheFolder.delete() }
         options.addAction(debugTitle, "Reload Plugins") { ExtensionLoader.reloadPlugins() }
-        // todo overview to show plugins & mods
-        // todo marketplace for plugins & mods?
-        // ...
-
-        // todo shortcuts, which can be set for all actions??...
 
         /**
          * Rendering
@@ -244,8 +241,8 @@ object RemsStudioUILayouts {
         val library = StudioUITypeLibrary()
 
         val topLeft = CustomList(true, style)
-        topLeft += CustomContainer(StudioTreeView(style), library, style)
-        topLeft += CustomContainer(StudioFileExplorer(project?.scenes, style), library, style)
+        topLeft.add(CustomContainer(StudioTreeView(style), library, style))
+        topLeft.add(CustomContainer(StudioFileExplorer(project?.scenes, style), library, style))
         topHalf.add(CustomContainer(topLeft, library, style), 0.5f)
 
         topHalf.add(CustomContainer(StudioSceneView(style), library, style), 2f)
@@ -263,5 +260,4 @@ object RemsStudioUILayouts {
         return customUI
 
     }
-
 }

@@ -1,17 +1,20 @@
 package me.anno.remsstudio.animation.drivers
 
 import me.anno.config.DefaultConfig
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.parser.SimpleExpressionParser.parseDouble
 import me.anno.parser.SimpleExpressionParser.preparse
 import me.anno.remsstudio.objects.Transform
-import me.anno.engine.inspector.Inspectable
+import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.TextInputML
-import me.anno.ui.Style
 
+@Deprecated("Drivers are too technical")
+@Suppress("MemberVisibilityCanBePrivate")
 class FunctionDriver : AnimationDriver() {
 
     // make them animated? no xD
@@ -19,17 +22,14 @@ class FunctionDriver : AnimationDriver() {
     var formulaParts: ArrayList<Any>? = preparse(formula)
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        transforms: List<Transform>,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, transforms: List<Transform>, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, transforms, style, getGroup)
-        list += TextInputML(Dict["Function f(time)", "driver.function"], formula, style)
+        list += TextInputML(NameDesc("Function f(time)", "", "driver.function"), formula, style)
             .apply { base.enableSpellcheck = false }
             .addChangeListener { formula = it; updateFormula() }
-            .setIsSelectedListener { show(null) }
+            .setIsSelectedListener { show(emptyList()) }
             .setTooltip(Dict["Example: sin(time*pi)", "driver.function.desc"])
     }
 
@@ -44,7 +44,7 @@ class FunctionDriver : AnimationDriver() {
     }
 
     override fun setProperty(name: String, value: Any?) {
-        when(name){
+        when (name) {
             "formula" -> {
                 formula = value as? String ?: return
                 updateFormula()

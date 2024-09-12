@@ -8,6 +8,7 @@ import me.anno.ecs.components.anim.*
 import me.anno.ecs.components.anim.BoneData.uploadJointMatrices
 import me.anno.ecs.components.mesh.Mesh
 import me.anno.ecs.components.mesh.MeshComponentBase
+import me.anno.ecs.components.mesh.material.Materials
 import me.anno.ecs.prefab.PrefabCache
 import me.anno.engine.inspector.Inspectable
 import me.anno.engine.ui.render.ECSShaderLib
@@ -20,10 +21,10 @@ import me.anno.gpu.shader.Shader
 import me.anno.gpu.shader.renderer.Renderer
 import me.anno.gpu.texture.ITexture2D
 import me.anno.gpu.texture.TextureLib.whiteTexture
+import me.anno.image.thumbs.AssetThumbHelper.warnMissingMesh
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
-import me.anno.image.thumbs.ThumbsExt
 import me.anno.language.translation.Dict
 import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.fract
@@ -41,8 +42,10 @@ import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.EnumInput
 import me.anno.utils.files.LocalFile.toGlobalFile
 import me.anno.utils.pooling.JomlPools
+import me.anno.utils.structures.Collections.filterIsInstance2
 import org.joml.*
 
+@Suppress("MemberVisibilityCanBePrivate")
 class MeshTransform(var file: FileReference, parent: Transform?) : GFXTransform(parent) {
 
     // todo lerp animations
@@ -233,14 +236,14 @@ class MeshTransform(var file: FileReference, parent: Transform?) : GFXTransform(
                     val materialOverrides = comp.materials
                     val materials = mesh.materials
                     for (index in 0 until mesh.numMaterials) {
-                        val material = Pipeline.getMaterial(materialOverrides, materials, index)
+                        val material = Materials.getMaterial(materialOverrides, materials, index)
                         shader.v1i("hasVertexColors", if (material.enableVertexColors) mesh.hasVertexColors else 0)
                         material.bind(shader)
                         shader.v4f("diffuseBase", material.diffuseBase * color)
                         animTexture?.bindTrulyNearest(shader, "animTexture")
-                        mesh.draw(shader, index)
+                        mesh.draw(null, shader, index)
                     }
-                } else ThumbsExt.warnMissingMesh(comp, mesh)
+                } else warnMissingMesh(comp, mesh)
             }
         }
 
@@ -250,7 +253,7 @@ class MeshTransform(var file: FileReference, parent: Transform?) : GFXTransform(
             if (animMeshRenderer != null) {
                 val skinningMatrices = uploadJointMatrices(shader, animation, time)
                 SkeletonCache[animMeshRenderer.skeleton]
-                    ?.draw(shader, localTransform, skinningMatrices)
+                    ?.draw(null, shader, localTransform, skinningMatrices)
             }
         }*/
 
@@ -267,31 +270,33 @@ class MeshTransform(var file: FileReference, parent: Transform?) : GFXTransform(
 
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
 
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<MeshTransform>()
+        val c = inspected.filterIsInstance2(MeshTransform::class)
 
         list += vi(
-            inspected, "File", "", null, file, style
+            inspected, "File", "Source file to be loaded", "mesh.file", null, file, style
         ) { it, _ -> for (x in c) x.file = it }
 
         list += vi(
-            inspected, "Normalize Scale", "A quicker fix than manually finding the correct scale",
+            inspected, "Normalize Scale",
+            "A quicker fix than manually finding the correct scale",
+            "mesh.normalizeScale",
             null, normalizeScale, style
         ) { it, _ -> for (x in c) x.normalizeScale = it }
         list += vi(
-            inspected, "Center Mesh", "If your mesh is off-center, this corrects it",
+            inspected, "Center Mesh",
+            "If your mesh is off-center, this corrects it",
+            "mesh.centerMesh",
             null, centerMesh, style
         ) { it, _ -> for (x in c) x.centerMesh = it }
 
         // the list of available animations depends on the model
-        // but still, it's like an enum: only a certain set of animations is available
-        // and the user wouldn't know perfectly which
+        // but still, it's like an enum: only a certain set of animations is available,
+        // and the user wouldn't know perfectly, which
         val map = HashMap<Map<String, Animation>?, Panel>()
         list += UpdatingContainer(100, {
             val animations = lastAnimations

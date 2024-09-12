@@ -2,7 +2,6 @@ package me.anno.remsstudio.objects.models
 
 import me.anno.ecs.components.mesh.Mesh
 import me.anno.gpu.buffer.DrawMode
-import me.anno.gpu.shader.ShaderLib
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.gpu.ShaderLibV2
 import me.anno.utils.types.Floats.toRadians
@@ -34,15 +33,15 @@ object CameraModel {
         shader.m4x4("transform", stack)
         shader.v4f("color", color)
         shader.v4f("tint", -1)
-        cameraModel.draw(shader, 0)
+        cameraModel.draw(null, shader, 0)
 
         stack.scale(near)
         shader.m4x4("transform", stack)
-        cameraModel.draw(shader, 0)
+        cameraModel.draw(null, shader, 0)
 
         stack.scale(far / near)
         shader.m4x4("transform", stack)
-        cameraModel.draw(shader, 0)
+        cameraModel.draw(null, shader, 0)
 
     }
 

@@ -6,7 +6,7 @@ import me.anno.remsstudio.audio.effects.Domain
 import me.anno.remsstudio.audio.effects.Time
 import me.anno.remsstudio.audio.effects.impl.EqualizerEffect
 import me.anno.remsstudio.objects.Camera
-import me.anno.remsstudio.objects.Video
+import me.anno.remsstudio.objects.video.Video
 import me.anno.utils.OS
 import org.apache.logging.log4j.LogManager
 import kotlin.math.roundToInt
@@ -31,7 +31,7 @@ fun main() {
     pipeline.audio = audio
     pipeline.camera = camera
 
-    for (i in effect.frequencies.indices) {
+    for (i in EqualizerEffect.frequencies.indices) {
         effect.sliders[i].set(Math.random().toFloat()) // 0.37457f
     }
 

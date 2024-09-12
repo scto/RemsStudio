@@ -10,17 +10,19 @@ import me.anno.remsstudio.ui.StudioFileImporter.addChildFromFile
 import me.anno.ui.base.groups.PanelList
 import me.anno.ui.base.scrolling.ScrollPanelX
 import me.anno.ui.editor.files.FileContentImporter
-import me.anno.utils.structures.lists.Lists.getOrPrevious
+import me.anno.utils.structures.Collections.filterIsInstance2
 import org.apache.logging.log4j.LogManager
+import kotlin.math.max
 
 // may there only be once instance? yes
+@Suppress("MemberVisibilityCanBePrivate")
 object SceneTabs : ScrollPanelX(DefaultConfig.style) {
 
     private val LOGGER = LogManager.getLogger(SceneTabs::class)
 
     val content = child as PanelList
     val panelChildren = content.children
-    val sceneTabs get() = panelChildren.filterIsInstance<SceneTab>()
+    val sceneTabs get() = panelChildren.filterIsInstance2(SceneTab::class)
 
     var currentTab: SceneTab? = null
 
@@ -84,7 +86,7 @@ object SceneTabs : ScrollPanelX(DefaultConfig.style) {
             } else {
                 val index = sceneTab.indexInParent
                 sceneTab.removeFromParent()
-                open(panelChildren.getOrPrevious(index) as SceneTab)
+                open(panelChildren[max(index, 0)] as SceneTab)
             }
         } else sceneTab.removeFromParent()
     }

@@ -1,5 +1,6 @@
 package me.anno.remsstudio
 
+import me.anno.engine.inspector.Inspectable
 import me.anno.language.Language
 import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio.project
@@ -16,9 +17,8 @@ object ProjectSettings : Transform() {
     override val defaultDisplayName get() = "Project Settings"
 
     override fun createInspector(
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         list.add(createSpellcheckingPanel(style))
     }
@@ -26,7 +26,7 @@ object ProjectSettings : Transform() {
     fun createSpellcheckingPanel(style: Style): Panel {
         val project = project ?: return TextPanel("Project missing :/", style)
         val name = NameDesc("Language", "For Spellchecking", "")
-        val values = Language.values()
+        val values = Language.entries
         return EnumInput(name, project.language.naming, values.map { it.naming }, style)
             .setChangeListener { _, index, _ ->
                 project.language = values[index]; save()

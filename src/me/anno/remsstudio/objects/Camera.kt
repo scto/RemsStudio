@@ -3,12 +3,12 @@ package me.anno.remsstudio.objects
 import me.anno.config.DefaultConfig
 import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX
-import me.anno.gpu.drawing.Perspective.perspective2
-import me.anno.gpu.pipeline.Sorting
+import me.anno.gpu.drawing.Perspective.setPerspective
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.pow
 import me.anno.remsstudio.RemsStudio
@@ -23,10 +23,12 @@ import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.NumberType
 import me.anno.utils.files.LocalFile.toGlobalFile
 import me.anno.utils.pooling.JomlPools
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.types.Casting.castToFloat2
 import me.anno.utils.types.Floats.toRadians
 import org.joml.*
 
+@Suppress("MemberVisibilityCanBePrivate")
 class Camera(parent: Transform? = null) : Transform(parent) {
 
     // kind of done allow cameras to be merged
@@ -34,9 +36,6 @@ class Camera(parent: Transform? = null) : Transform(parent) {
     // by implementing SoftLink: scenes can be included in others
 
     // orthographic-ness by setting the camera back some amount, and narrowing the view
-
-    // todo actually order the scene before drawing
-    var order = Sorting.FRONT_TO_BACK
 
     var lut: FileReference = InvalidRef
     val nearZ = AnimatedProperty.floatPlus(0.001f)
@@ -80,46 +79,39 @@ class Camera(parent: Transform? = null) : Transform(parent) {
     fun orthographicFOV(fov: Float, offset: Float) = fov / (1f + offset)
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
 
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<Camera>()
+        val c = inspected.filterIsInstance2(Camera::class)
 
-        val transform = getGroup("Transform", "", "transform")
+        val transform = getGroup(NameDesc("Transform", "", "obj.transform"))
         transform += vis(
             c, "Orbit Radius", "Orbiting Distance", "camera.orbitDis",
-            "camera.orbitDis", c.map { it.orbitRadius },
-            style
+            c.map { it.orbitRadius }, style
         )
 
 
-        val cam = getGroup("Projection", "How rays of light are mapped to the screen", "projection")
+        val cam = getGroup(NameDesc("Projection", "How rays of light are mapped to the screen", "obj.projection"))
         cam += vis(
             c, "FOV", "Field Of View, in degrees, vertical", "camera.fov",
-            "camera.fov", c.map { it.fovYDegrees },
-            style
+            c.map { it.fovYDegrees }, style
         )
         cam += vis(
             c, "Perspective - Orthographic", "Sets back the camera", "camera.orthographicness",
-            "camera.orthographicness", c.map { it.orthographicness },
-            style
+            c.map { it.orthographicness }, style
         )
 
 
-        val depth = getGroup("Depth", "Z-axis related settings; from camera perspective", "depth")
+        val depth = getGroup(NameDesc("Depth", "Z-axis related settings; from camera perspective", "obj.depth"))
         depth += vis(
             c, "Near Z", "Closest Visible Distance", "camera.depth.near",
-            "camera.depth.near", c.map { it.nearZ },
-            style
+            c.map { it.nearZ }, style
         )
         depth += vis(
             c, "Far Z", "Farthest Visible Distance", "camera.depth.far",
-            "camera.depth.far", c.map { it.farZ },
-            style
+            c.map { it.farZ }, style
         )
         depth += vi(
             inspected, "Use Depth",
@@ -131,11 +123,10 @@ class Camera(parent: Transform? = null) : Transform(parent) {
         ) { order = it }*/
 
 
-        val chroma = getGroup("Chromatic Aberration", "Effect occurring in cheap lenses", "chroma")
+        val chroma = getGroup(NameDesc("Chromatic Aberration", "Effect occurring in cheap lenses", "obj.chroma"))
         chroma += vis(
             c, "Strength", "How large the effect is", "camera.chromaStrength",
-            "camera.chromaStrength", c.map { it.chromaticAberration },
-            style
+            c.map { it.chromaticAberration }, style
         )
         chroma += vis(
             c, "Offset", "Offset", "camera.chromaOffset", c.map { it.chromaticOffset },
@@ -143,59 +134,58 @@ class Camera(parent: Transform? = null) : Transform(parent) {
         )
         chroma += vis(
             c, "Rotation", "Rotation/angle in Degrees", "camera.chromaRotation",
-            "camera.chromaRotation", c.map { it.chromaticAngle },
-            style
+            c.map { it.chromaticAngle }, style
         )
 
 
-        val dist = getGroup("Distortion", "Transforms the image", "distortion")
+        val dist = getGroup(NameDesc("Distortion", "Transforms the image", "obj.distortion"))
         dist += vis(
-            c, "Distortion", "Params: R², R⁴, Scale", c.map { it.distortion },
+            c, "Distortion",
+            "Params: R², R⁴, Scale",
+            "camera.distortion",
+            c.map { it.distortion },
             style
         )
         dist += vis(
-            c, "Distortion Offset", "Moves the center of the distortion", c.map { it.distortionOffset },
+            c, "Distortion Offset",
+            "Moves the center of the distortion",
+            "camera.distortionOffset",
+            c.map { it.distortionOffset },
             style
         )
 
 
-        val vignette = getGroup("Vignette", "Darkens/colors the border", "vignette")
+        val vignette = getGroup(NameDesc("Vignette", "Darkens/colors the border", "obj.vignette"))
         vignette += vis(
             c, "Vignette Color", "Color of border", "vignette.color",
-            "vignette.color", c.map { it.vignetteColor },
-            style
+            c.map { it.vignetteColor }, style
         )
         vignette += vis(
             c, "Vignette Strength", "Strength of colored border", "vignette.strength",
-            "vignette.strength", c.map { it.vignetteStrength },
-            style
+            c.map { it.vignetteStrength }, style
         )
 
 
-        val bloom = getGroup("Bloom", "Adds a light halo around bright objects", "bloom")
+        val bloom = getGroup(NameDesc("Bloom", "Adds a light halo around bright objects", "obj.bloom"))
         bloom += vis(
             c, "Intensity", "Brightness of effect, 0 = off", "bloom.intensity",
-            "bloom.intensity", c.map { it.bloomIntensity },
-            style
+            c.map { it.bloomIntensity }, style
         )
         bloom += vis(
             c, "Effect Size", "How much it is blurred", "bloom.size",
-            "bloom.size", c.map { it.bloomSize },
-            style
+            c.map { it.bloomSize }, style
         )
         bloom += vis(
             c, "Threshold", "Minimum brightness", "bloom.threshold",
-            "bloom.threshold", c.map { it.bloomThreshold },
-            style
+            c.map { it.bloomThreshold }, style
         )
 
 
-        val color = getGroup("Color", "Tint and Tonemapping", "color")
+        val color = getGroup(NameDesc("Color", "Tint and Tonemapping", "obj.color"))
         color += vis(
             c,
             "Background Color",
             "Clearing color for the screen",
-            "camera.backgroundColor",
             "camera.backgroundColor",
             c.map { it.backgroundColor },
             style
@@ -209,7 +199,7 @@ class Camera(parent: Transform? = null) : Transform(parent) {
         color += vi(
             inspected, "Look Up Table",
             "LUT, Look Up Table for colors, formatted like in UE4", "camera.lut",
-            "camera.toneMapping", null, lut, style
+            "camera.lookupTable", null, lut, style
         ) { it, _ -> for (x in c) x.lut = it }
 
         ColorGrading.createInspector(
@@ -217,20 +207,23 @@ class Camera(parent: Transform? = null) : Transform(parent) {
             c.map { it.cgOffsetSub }, { it }, getGroup, style
         )
 
-        val editor = getGroup("Editor", "Settings, which only effect editing", "editor")
+        val editor = getGroup(NameDesc("Editor", "Settings, which only effect editing", "obj.editor"))
         editor += vi(
             inspected, "Only Show Target",
             "Forces the viewport to have the correct aspect ratio",
+            "camera.onlyShowTarget",
             null, onlyShowTarget, style
         ) { it, _ -> for (x in c) x.onlyShowTarget = it }
 
-        val ops = getGroup("Operations", "Actions", "operations")
-        ops += TextButton("Reset Transform", "If accidentally moved", "obj.camera.resetTransform", false, style)
-            .addLeftClickListener {
-                RemsStudio.largeChange("Reset Camera Transform") {
-                    for (x in c) x.resetTransform(false)
-                }
+        val ops = getGroup(NameDesc("Operations", "Actions", "obj.operations"))
+        ops += TextButton(
+            NameDesc("Reset Transform", "If accidentally moved", "obj.camera.resetTransform"),
+            false, style
+        ).addLeftClickListener {
+            RemsStudio.largeChange("Reset Camera Transform") {
+                for (x in c) x.resetTransform(false)
             }
+        }
     }
 
     override fun onDraw(stack: Matrix4fArrayList, time: Double, color: Vector4f) {
@@ -357,9 +350,8 @@ class Camera(parent: Transform? = null) : Transform(parent) {
             .sub(position).normalize()
         val lookAt = cameraTransform2.transformProject(tmp2.set(0f, 0f, -1f))
         val aspectRatio = GFX.viewportWidth.toFloat() / GFX.viewportHeight
-        stack.perspective2(
-            fov.toRadians(), aspectRatio, near, far, 0f, 0f
-        ).lookAt(position, lookAt, up)
+        setPerspective(stack, fov.toRadians(), aspectRatio, near, far, 0f, 0f)
+        stack.lookAt(position, lookAt, up)
         val scale = pow(1f / orbitRadius, orthographicness[time])
         if (scale != 0f && scale.isFinite()) stack.scale(scale)
         JomlPools.vec3f.sub(3)

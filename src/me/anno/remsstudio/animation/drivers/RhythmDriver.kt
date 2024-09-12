@@ -1,6 +1,8 @@
 package me.anno.remsstudio.animation.drivers
 
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.audio.pattern.PatternRecorderCore
 import me.anno.ui.Style
@@ -8,21 +10,30 @@ import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.base.text.TextPanel
 import me.anno.ui.editor.SettingCategory
 
+@Deprecated("Drivers are too technical")
+@Suppress("MemberVisibilityCanBePrivate")
 class RhythmDriver : AnimationDriver() {
 
     var rhythm: DoubleArray = DoubleArray(0)
     var timestamps: DoubleArray = rhythm
 
     override fun createInspector(
-        list: PanelListY, style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
-        // todo register changes in history
         super.createInspector(list, style, getGroup)
         list += TextPanel("Rhythm (record while listening to target music)", style)
-        list += PatternRecorderCore.create(rhythm) { rhythm = it }
+        list += PatternRecorderCore.create(rhythm) {
+            RemsStudio.incrementalChange("Rhythm") {
+                rhythm = it
+            }
+        }
         list += TextPanel("Timestamps (record while watching timelapse)", style)
-        list += PatternRecorderCore.create(timestamps) { timestamps = it }
+        list += PatternRecorderCore.create(timestamps) {
+            RemsStudio.incrementalChange("Timestamps") {
+                timestamps = it
+            }
+        }
     }
 
     override fun getValue0(time: Double, keyframeValue: Double, index: Int): Double {

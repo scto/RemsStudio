@@ -3,7 +3,6 @@ package me.anno.remsstudio.objects.text
 import me.anno.cache.CacheData
 import me.anno.config.DefaultConfig
 import me.anno.engine.inspector.Inspectable
-import me.anno.fonts.AWTFont
 import me.anno.fonts.Font
 import me.anno.fonts.FontManager
 import me.anno.fonts.FontManager.TextCache
@@ -12,14 +11,13 @@ import me.anno.fonts.mesh.TextMesh.Companion.DEFAULT_LINE_HEIGHT
 import me.anno.fonts.mesh.TextMeshGroup
 import me.anno.fonts.signeddistfields.TextSDFGroup
 import me.anno.io.base.BaseWriter
+import me.anno.jvm.fonts.AWTFont
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.mix
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.GFXTransform
-import me.anno.remsstudio.objects.TextSegmentKey
 import me.anno.remsstudio.objects.Transform
-import me.anno.remsstudio.objects.lists.Element
-import me.anno.remsstudio.objects.lists.SplittableElement
 import me.anno.remsstudio.objects.modes.TextRenderMode
 import me.anno.ui.Style
 import me.anno.ui.base.components.AxisAlignment
@@ -27,17 +25,15 @@ import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.PropertyInspector.Companion.invalidateUI
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.NumberType
-import me.anno.utils.structures.tuples.Quad
 import me.anno.utils.types.Strings.smallCaps
 import org.joml.Matrix4fArrayList
 import org.joml.Vector3f
 import org.joml.Vector4f
-import java.net.URL
-import kotlin.streams.toList
 
 // todo background "color" in the shape of a plane? for selections and such
 
-open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableElement {
+@Suppress("MemberVisibilityCanBePrivate")
+open class Text(parent: Transform? = null) : GFXTransform(parent) {
 
     companion object {
 
@@ -79,7 +75,7 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
     var outlineDepth = AnimatedProperty.float(0f)
 
     val shadowColor = AnimatedProperty.color(Vector4f(0f))
-    val shadowOffset = AnimatedProperty.pos(Vector3f(0f, 0f, -0.1f))
+    val shadowOffset = AnimatedProperty.pos(Vector3f(0.2f, -0.2f, -0.1f))
     val shadowSmoothness = AnimatedProperty.floatPlus(0f)
 
     val startCursor = AnimatedProperty.int(-1)
@@ -102,7 +98,7 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
     var relativeCharSpacing = 0f
     var relativeTabSize = 4f
 
-    var font = Font("Verdana", DEFAULT_FONT_HEIGHT, false, false)
+    var font = Font("Verdana", DEFAULT_FONT_HEIGHT, isBold = false, isItalic = false)
     var smallCaps = false
     val charSpacing get() = font.size * relativeCharSpacing
     var forceVariableBuffer = false
@@ -134,16 +130,32 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
         return awtFont.splitParts(text2, font.size, relativeTabSize, relativeCharSpacing, absoluteLineBreakWidth, -1f)
     }
 
+    data class VisState(
+        val rm: TextRenderMode,
+        val rsdf: Boolean,
+        val cs: Float,
+        val text: String,
+        val font: Font,
+        val sc: Boolean,
+        val lbw: Float,
+        val rts: Float
+    )
+
     fun getVisualState(text: String): Any =
-        Quad(
+        VisState(
             renderingMode, roundSDFCorners, charSpacing,
-            Quad(text, font, smallCaps, Pair(lineBreakWidth, relativeTabSize))
+            text, font, smallCaps, lineBreakWidth, relativeTabSize
         )
 
     private val shallLoadAsync get() = !forceVariableBuffer
     fun getTextMesh(key: TextSegmentKey): TextMeshGroup? {
         return TextCache.getEntry(key, textMeshTimeout, shallLoadAsync) { keyInstance ->
-            TextMeshGroup((keyInstance.font as AWTFont).font, keyInstance.text, keyInstance.charSpacing, forceVariableBuffer)
+            TextMeshGroup(
+                (keyInstance.font as AWTFont).font,
+                keyInstance.text,
+                keyInstance.charSpacing,
+                forceVariableBuffer
+            )
         } as? TextMeshGroup
     }
 
@@ -287,20 +299,16 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
         createInspectorWithoutSuper(inspected, list, style, getGroup)
     }
 
     fun createInspectorWithoutSuper(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) = createInspectorWithoutSuperImpl(inspected, list, style, getGroup)
 
     fun getSelfWithShadows() = getShadows() + this
@@ -318,73 +326,4 @@ open class Text(parent: Transform? = null) : GFXTransform(parent), SplittableEle
 
     override val symbol get() = DefaultConfig["ui.symbol.text", "\uD83D\uDCC4"]
 
-    override fun getSplittingModes(): List<String> {
-        return listOf("Letters", "Words", "Sentences", "Lines")
-    }
-
-    override fun getSplitElement(mode: String, index: Int): Element {
-        val text = text[0.0]
-        val word = when (mode) {
-            "Letters" -> String(Character.toChars(text.codePoints().toList()[index]))
-            "Words" -> splitWords(text)[index]
-            "Sentences" -> splitSentences(text)[index]
-            "Lines" -> text.split('\n')[index]
-            else -> "?"
-        }
-        val child = clone() as Text
-        child.text.set(word)
-        val (segments, _) = child.getSegments(word)
-        val part0 = segments.parts[0]
-        val width = part0.lineWidth
-        val height = 0f // ???
-        return Element(width, height, 0f, child)
-    }
-
-    fun splitWords(str: String): List<String> {
-        // todo better criterion (?)
-        return str.split(' ')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-    }
-
-    fun splitSentences(str: String): List<String> {
-        val result = ArrayList<String>()
-        var hasEndSymbols = false
-        var lastI = 0
-        for (i in str.indices) {
-            when (str[i]) {
-                '.', '!', '?' -> {
-                    hasEndSymbols = true
-                }
-                '\n' -> {
-                    if (i > lastI) result += str.substring(lastI, i)
-                    lastI = i + 1
-                    hasEndSymbols = false
-                }
-                ' ', '\t' -> {
-                    // ignore
-                }
-                else -> {// a letter
-                    if (hasEndSymbols) {
-                        if (i > lastI) result += str.substring(lastI, i).trim()
-                        lastI = i
-                        hasEndSymbols = false
-                    }
-                }
-            }
-        }
-        if (str.length > lastI) result += str.substring(lastI)
-        return result
-    }
-
-    override fun getSplitLength(mode: String): Int {
-        val text = text[0.0]
-        return when (mode) {
-            "Letters" -> text.codePointCount(0, text.length)
-            "Words" -> splitWords(text).size
-            "Sentences" -> splitSentences(text).size
-            "Lines" -> text.count { it == '\n' }
-            else -> 0
-        }
-    }
 }

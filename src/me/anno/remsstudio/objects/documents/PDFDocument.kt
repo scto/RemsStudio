@@ -1,19 +1,18 @@
 package me.anno.remsstudio.objects.documents
 
-import me.anno.ui.input.NumberType
 import me.anno.cache.instances.PDFCache
 import me.anno.cache.instances.PDFCache.getTexture
 import me.anno.config.DefaultConfig
+import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX.isFinalRendering
 import me.anno.gpu.GFX.viewportHeight
 import me.anno.gpu.GFX.viewportWidth
-import me.anno.gpu.drawing.UVProjection
 import me.anno.gpu.texture.Clamping
 import me.anno.gpu.texture.TextureLib.colorShowTexture
-import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.gpu.GFXx3Dv2
 import me.anno.remsstudio.gpu.TexFiltering
@@ -21,14 +20,14 @@ import me.anno.remsstudio.gpu.TexFiltering.Companion.getFiltering
 import me.anno.remsstudio.objects.GFXTransform
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.documents.SiteSelection.parseSites
-import me.anno.remsstudio.objects.lists.Element
-import me.anno.remsstudio.objects.lists.SplittableElement
-import me.anno.engine.inspector.Inspectable
+import me.anno.remsstudio.video.UVProjection
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
+import me.anno.ui.input.NumberType
 import me.anno.utils.Clipping
 import me.anno.utils.files.LocalFile.toGlobalFile
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.structures.ValueWithDefault.Companion.writeMaybe
 import me.anno.utils.structures.ValueWithDefaultFunc
 import me.anno.utils.structures.lists.Lists.median
@@ -47,13 +46,15 @@ import kotlin.math.*
 // todo re-project UV textures onto stuff to animate an image exploding (gets UVs from first frame, then just is a particle system or sth else)
 // todo interpolation between lists and sets? could be interesting :)
 
-open class PDFDocument(var file: FileReference, parent: Transform?) : GFXTransform(parent), SplittableElement {
+@Suppress("MemberVisibilityCanBePrivate")
+open class PDFDocument(var file: FileReference, parent: Transform?) : GFXTransform(parent) {
 
     constructor() : this(InvalidRef, null)
 
     var selectedSites = ""
 
     var padding = AnimatedProperty.float(0f)
+    val cornerRadius = AnimatedProperty.vec4(Vector4f(0f))
 
     var direction = AnimatedProperty.rotY()
 
@@ -149,13 +150,15 @@ open class PDFDocument(var file: FileReference, parent: Transform?) : GFXTransfo
                                 stack.scale(x, 1f, 1f)
                                 GFXx3Dv2.draw3DVideo(
                                     this, time, stack, texture, color,
-                                    TexFiltering.NEAREST, Clamping.CLAMP, null, UVProjection.Planar
+                                    TexFiltering.NEAREST, Clamping.CLAMP, null, UVProjection.Planar,
+                                    cornerRadius[time]
                                 )
                             }
                         } else {
                             GFXx3Dv2.draw3DVideo(
                                 this, time, stack, texture, color,
-                                filtering.value, Clamping.CLAMP, null, UVProjection.Planar
+                                filtering.value, Clamping.CLAMP, null, UVProjection.Planar,
+                                cornerRadius[time]
                             )
                         }
                     }
@@ -178,29 +181,39 @@ open class PDFDocument(var file: FileReference, parent: Transform?) : GFXTransfo
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<PDFDocument>()
-        val doc = getGroup("Document", "", "docs")
+        val c = inspected.filterIsInstance2(PDFDocument::class)
+        val colorGroup = getGroup(NameDesc("Color", "", "obj.color"))
+        colorGroup += vis(
+            c, "Corner Radius", "Makes the corners round", "cornerRadius",
+            c.map { it.cornerRadius }, style
+        )
+        val doc = getGroup(NameDesc("Document", "", "obj.docs"))
         doc += vi(
-            inspected, "Path", "", null, file, style
+            inspected, "Path", "Source file to be loaded and displayed", "docs.file", null, file, style
         ) { it, _ -> for (x in c) x.file = it }
         doc += vi(
-            inspected, "Pages", "Comma separated list of page numbers. Ranges like 1-9 are fine, too.",
-            null, selectedSites, style
+            inspected, "Pages",
+            "Comma-separated list of page numbers. Ranges like 1-9 are fine, too.",
+            "docs.pagesList", null, selectedSites, style
         ) { it, _ -> for (x in c) x.selectedSites = it }
-        doc += vis(c, "Padding", "", c.map { it.padding }, style)
-        doc += vis(c, "Direction", "Top-Bottom/Left-Right in Degrees", c.map { it.direction }, style)
+        doc += vis(
+            c, "Padding", "Distance between pages when displaying more than one", "docs.padding",
+            c.map { it.padding }, style
+        )
+        doc += vis(
+            c, "Direction", "How left/right/top/bottom the padding is between pages, in degrees", "docs.direction",
+            c.map { it.direction }, style
+        )
         doc += vi(
-            inspected, "Editor Quality", "Factor for resolution; applied in editor",
+            inspected, "Editor Quality", "Factor for resolution; applied in editor", "docs.editorQuality",
             NumberType.FLOAT_PLUS, editorQuality, style
         ) { it, _ -> for (x in c) x.editorQuality = it }
         doc += vi(
-            inspected, "Render Quality", "Factor for resolution; applied when rendering",
+            inspected, "Render Quality", "Factor for resolution; applied when rendering", "docs.renderQuality",
             NumberType.FLOAT_PLUS, renderQuality, style
         ) { it, _ -> for (x in c) x.renderQuality = it }
         doc += vi(
@@ -218,10 +231,11 @@ open class PDFDocument(var file: FileReference, parent: Transform?) : GFXTransfo
         writer.writeFloat("editorQuality", editorQuality)
         writer.writeFloat("renderQuality", renderQuality)
         writer.writeMaybe(this, "filtering", filtering)
+        writer.writeObject(this, "cornerRadius", cornerRadius)
     }
 
     override fun setProperty(name: String, value: Any?) {
-        when(name){
+        when (name) {
             "editorQuality" -> editorQuality = value as? Float ?: return
             "renderQuality" -> renderQuality = value as? Float ?: return
             "filtering" -> filtering.value = filtering.value.find(value as? Int ?: return)
@@ -229,6 +243,7 @@ open class PDFDocument(var file: FileReference, parent: Transform?) : GFXTransfo
             "selectedSites" -> selectedSites = value as? String ?: return
             "padding" -> padding.copyFrom(value)
             "direction" -> direction.copyFrom(value)
+            "cornerRadius" -> cornerRadius.copyFrom(value)
             else -> super.setProperty(name, value)
         }
     }
@@ -239,49 +254,6 @@ open class PDFDocument(var file: FileReference, parent: Transform?) : GFXTransfo
                 height//if (windowWidth > windowHeight) height else width
             }
         }.median(0f)
-    }
-
-    override fun getSplitElement(mode: String, index: Int): Element {
-        val ref = forcedMeta
-        val doc = ref.doc
-        val numberOfPages = doc.numberOfPages
-        val pages = getSelectedSitesList()
-        var remainingIndex = index
-        var pageNumber = 0
-        for (it in pages) {
-            val start = max(it.first, 0)
-            val end = min(it.last + 1, numberOfPages)
-            val length = max(0, end - start)
-            if (remainingIndex < length) {
-                pageNumber = start + remainingIndex
-                break
-            }
-            remainingIndex -= length
-        }
-        val child = clone() as PDFDocument
-        child.selectedSites = "$pageNumber"
-        val mediaBox = doc.getPage(pageNumber).mediaBox
-        val scale = 1f / getReferenceScale(doc, numberOfPages)
-        ref.returnInstance()
-        val w = mediaBox.width * scale
-        val h = mediaBox.height * scale
-        return Element(w, h, 0f, child)
-    }
-
-    override fun getSplitLength(mode: String): Int {
-        val ref = meta!!
-        val doc = ref.doc
-        val numberOfPages = doc.numberOfPages
-        val pages = getSelectedSitesList()
-        var sum = 0
-        for (it in pages) {
-            val start = max(it.first, 0)
-            val end = min(it.last + 1, numberOfPages)
-            val length = max(0, end - start)
-            sum += length
-        }
-        ref.returnInstance()
-        return sum
     }
 
     companion object {

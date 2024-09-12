@@ -4,7 +4,6 @@ import me.anno.config.DefaultConfig
 import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX.isFinalRendering
 import me.anno.gpu.GFXState.useFrame
-import me.anno.gpu.drawing.UVProjection
 import me.anno.gpu.framebuffer.DepthBufferType
 import me.anno.gpu.framebuffer.FBStack
 import me.anno.gpu.shader.renderer.Renderer
@@ -13,6 +12,7 @@ import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.Scene
 import me.anno.remsstudio.animation.AnimatedProperty
@@ -21,6 +21,7 @@ import me.anno.remsstudio.gpu.TexFiltering
 import me.anno.remsstudio.gpu.TexFiltering.Companion.getFiltering
 import me.anno.remsstudio.objects.text.Text
 import me.anno.remsstudio.ui.StudioFileImporter.addChildFromFile
+import me.anno.remsstudio.video.UVProjection
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
@@ -28,6 +29,7 @@ import me.anno.ui.editor.files.FileContentImporter
 import me.anno.ui.editor.frames.FrameSizeInput
 import me.anno.ui.input.NumberType
 import me.anno.utils.files.LocalFile.toGlobalFile
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.structures.ValueWithDefault
 import me.anno.utils.structures.ValueWithDefault.Companion.writeMaybe
 import me.anno.utils.structures.ValueWithDefaultFunc
@@ -37,6 +39,7 @@ import org.joml.Vector2f
 import org.joml.Vector4f
 import kotlin.math.roundToInt
 
+@Suppress("MemberVisibilityCanBePrivate")
 class SoftLink(var file: FileReference) : GFXTransform(null) {
 
     constructor() : this(InvalidRef)
@@ -60,7 +63,8 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
     // filtering
     val filtering = ValueWithDefaultFunc { DefaultConfig.getFiltering("default.link.filtering", TexFiltering.LINEAR) }
 
-    var resolution = AnimatedProperty.vec2(Vector2f(1920f, 1080f))
+    val resolution = AnimatedProperty.vec2(Vector2f(1920f, 1080f))
+    val cornerRadius = AnimatedProperty.vec4(Vector4f(0f))
 
     /**
      * to apply LUTs, effects and such
@@ -89,7 +93,7 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
                 }
                 draw3DVideo(
                     this, time, stack, fb.getTexture0(), color, filtering.value, clampMode.value,
-                    tiling[time], uvProjection.value
+                    tiling[time], uvProjection.value, cornerRadius[time]
                 )
             }
         } else {
@@ -128,7 +132,7 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
         val w = StrictMath.max(size.x.roundToInt(), 4)
         val h = StrictMath.max(size.y.roundToInt(), 4)
         val wasFinalRendering = isFinalRendering
-        isFinalRendering = true
+        isFinalRendering = true // todo isn't this crash-prone???
         Scene.draw(
             camera, softChild,
             0, 0, w, h,
@@ -157,8 +161,7 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
                     ) { transform ->
                         softChild = transform
                         lastCamera = transform.listOfAll
-                            .filterIsInstance<Camera>()
-                            .toList()
+                            .filterIsInstance2(Camera::class)
                             .getOrNull(cameraIndex - 1)// 1 = first, 0 = none
                     }
                 }
@@ -174,15 +177,22 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val t = inspected.filterIsInstance<Transform>()
-        val c = inspected.filterIsInstance<SoftLink>()
-        val link = getGroup("Link Data", "", "softLink")
+        val t = inspected.filterIsInstance2(Transform::class)
+        val c = inspected.filterIsInstance2(SoftLink::class)
+        val colorGroup = getGroup(NameDesc("Color", "", "obj.color"))
+        colorGroup += vis(
+            c,
+            "Corner Radius",
+            "Makes the corners round",
+            "cornerRadius",
+            c.map { it.cornerRadius },
+            style
+        )
+        val link = getGroup(NameDesc("Link Data", "", "obj.softLink"))
         link += vi(
             inspected, "File", "Where the data is to be loaded from", "", null, file, style
         ) { it, _ -> for (x in c) x.file = it }
@@ -191,7 +201,7 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
             NumberType.INT_PLUS, cameraIndex, style
         ) { it, _ -> for (x in c) x.cameraIndex = it }
         list += FrameSizeInput(
-            "Resolution",
+            NameDesc("Resolution"),
             resolution[lastLocalTime].run { "${x.roundToInt()} x ${y.roundToInt()}" }, style
         )
             .setChangeListener { w, h ->
@@ -202,21 +212,30 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
             }
             .setIsSelectedListener { show(t, t.map { (it as? SoftLink)?.resolution }) }
         list += vis(
-            c, "Tiling", "(tile count x, tile count y, offset x, offset y)", c.map { it.tiling },
-            style
+            c, "Tiling", "(tile count x, tile count y, offset x, offset y)", "softLink.tiling",
+            c.map { it.tiling }, style
         )
         list += vi(
-            inspected, "UV-Projection", "Can be used for 360°-Videos", null, uvProjection.value, style
+            inspected, "UV-Projection",
+            "Can be used for 360°-Videos",
+            "texture.uvProjection",
+            null, uvProjection.value, style
         ) { it, _ -> for (x in c) x.uvProjection.value = it }
         list += vi(
-            inspected, "Filtering", "Pixelated look?", "texture.filtering", null, filtering.value, style
+            inspected, "Filtering",
+            "Pixelated look?",
+            "texture.filtering",
+            null, filtering.value, style
         ) { it, _ -> for (x in c) x.filtering.value = it }
         list += vi(
-            inspected, "Clamping", "For tiled images", "texture.clamping", null, clampMode.value, style
+            inspected, "Clamping",
+            "For tiled images",
+            "texture.clamping", null, clampMode.value, style
         ) { it, _ -> for (x in c) x.clampMode.value = it }
         // not ready yet
         link += vi(
-            inspected, "Enable Postprocessing", "", "", null, renderToTexture, style
+            inspected, "Enable Post-Processing",
+            "", "", null, renderToTexture, style
         ) { it, _ -> for (x in c) x.renderToTexture = it }
     }
 
@@ -231,6 +250,7 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
         writer.writeMaybe(this, "filtering", filtering)
         writer.writeMaybe(this, "clamping", clampMode)
         writer.writeMaybe(this, "uvProjection", uvProjection)
+        writer.writeObject(this, "cornerRadius", cornerRadius)
     }
 
     override fun setProperty(name: String, value: Any?) {
@@ -240,9 +260,10 @@ class SoftLink(var file: FileReference) : GFXTransform(null) {
             "renderToTexture" -> renderToTexture = value == true
             "cameraIndex" -> cameraIndex = value as? Int ?: return
             "filtering" -> filtering.value = filtering.value.find(value as? Int ?: return)
-            "clamping" -> clampMode.value = Clamping.values().firstOrNull { it.id == value } ?: return
-            "uvProjection" -> uvProjection.value = UVProjection.values().firstOrNull { it.id == value } ?: return
+            "clamping" -> clampMode.value = Clamping.entries.firstOrNull { it.id == value } ?: return
+            "uvProjection" -> uvProjection.value = UVProjection.entries.firstOrNull { it.id == value } ?: return
             "file" -> file = (value as? String)?.toGlobalFile() ?: (value as? FileReference) ?: InvalidRef
+            "cornerRadius" -> cornerRadius.copyFrom(value)
             else -> super.setProperty(name, value)
         }
     }

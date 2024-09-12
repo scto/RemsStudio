@@ -4,26 +4,27 @@ import me.anno.config.DefaultConfig
 import me.anno.engine.Events.addEvent
 import me.anno.io.files.FileReference
 import me.anno.language.translation.NameDesc
-import me.anno.remsstudio.objects.SoftLink
-import me.anno.remsstudio.objects.Transform
-import me.anno.remsstudio.objects.Transform.Companion.toTransform
-import me.anno.remsstudio.objects.Video
-import me.anno.remsstudio.objects.documents.PDFDocument
-import me.anno.remsstudio.objects.MeshTransform
-import me.anno.gpu.drawing.UVProjection
-import me.anno.remsstudio.objects.text.Text
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.RemsStudio.defaultWindowStack
 import me.anno.remsstudio.Selection.selectTransform
+import me.anno.remsstudio.objects.MeshTransform
+import me.anno.remsstudio.objects.SoftLink
+import me.anno.remsstudio.objects.Transform
+import me.anno.remsstudio.objects.Transform.Companion.toTransform
+import me.anno.remsstudio.objects.documents.PDFDocument
+import me.anno.remsstudio.objects.text.Text
+import me.anno.remsstudio.objects.video.Video
+import me.anno.remsstudio.video.UVProjection
 import me.anno.ui.base.menu.Menu.ask
 import me.anno.ui.base.menu.Menu.openMenu
 import me.anno.ui.base.menu.MenuOption
 import me.anno.ui.editor.files.FileContentImporter
-import me.anno.utils.types.Strings.getImportType
+import me.anno.utils.types.Strings.getImportTypeByExtension
 import org.apache.logging.log4j.LogManager
 import org.joml.Vector3f
 import kotlin.concurrent.thread
 
+@Suppress("MemberVisibilityCanBePrivate")
 object StudioFileImporter : FileContentImporter<Transform>() {
 
     override fun setName(element: Transform, name: String) {
@@ -43,7 +44,7 @@ object StudioFileImporter : FileContentImporter<Transform>() {
         callback: (Transform) -> Unit
     ) {
         val name = file.name
-        when (file.extension.getImportType()) {
+        when (getImportTypeByExtension(file.lcExtension)) {
             "Transform" -> when (useSoftLink) {
                 SoftLinkMode.ASK -> openMenu(
                     defaultWindowStack, listOf(
@@ -57,7 +58,7 @@ object StudioFileImporter : FileContentImporter<Transform>() {
                 SoftLinkMode.CREATE_LINK -> {
                     val transform = SoftLink(file)
                     RemsStudio.largeChange("Added ${transform.name} to ${file.name}") {
-                        var name2 = "${file.getParent()?.getParent()?.name}/${file.getParent()?.name}/${file.name}"
+                        var name2 = "${file.getParent().getParent().name}/${file.getParent().name}/${file.name}"
                         name2 = name2.replace("/Scenes/Root", "/")
                         name2 = name2.replace("/Scenes/", "/")
                         if (name2.endsWith(".json")) name2 = name2.substring(0, name2.length - 5)
@@ -156,13 +157,13 @@ object StudioFileImporter : FileContentImporter<Transform>() {
                 }
             }
             "HTML" -> {
-                // parse html? maybe, but html and css are complicated
-                // rather use screenshots or svg...
+                // parse HTML? maybe, but HTML and CSS are complicated
+                // rather use screenshots or SVG...
                 // integrated browser?
                 LOGGER.warn("todo html")
             }
             "Markdeep", "Markdown" -> {
-                // execute markdeep script or interpret markdown to convert it to html? no
+                // execute markdeep script or interpret markdown to convert it to HTML? no
                 // I see few use-cases
                 LOGGER.warn("todo markdeep")
             }
@@ -181,7 +182,6 @@ object StudioFileImporter : FileContentImporter<Transform>() {
     fun addText(name: String, parent: Transform?, text: String, doSelect: Boolean, callback: (Transform) -> Unit) {
         // important ;)
         // should maybe be done sometimes in object as well ;)
-        RuntimeException("Trying to read as text").printStackTrace()
         if (text.length > 500) {
             addEvent {
                 ask(
@@ -197,14 +197,14 @@ object StudioFileImporter : FileContentImporter<Transform>() {
                     }
                 }
             }
-            return
-        }
-        addEvent {
-            RemsStudio.largeChange("Imported Text") {
-                val textNode = Text(text, parent)
-                textNode.name = name
-                if (doSelect) selectTransform(textNode)
-                callback(textNode)
+        } else {
+            addEvent {
+                RemsStudio.largeChange("Imported Text") {
+                    val textNode = Text(text, parent)
+                    textNode.name = name
+                    if (doSelect) selectTransform(textNode)
+                    callback(textNode)
+                }
             }
         }
     }

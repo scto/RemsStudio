@@ -1,11 +1,12 @@
 package me.anno.remsstudio.objects.particles.distributions
 
-import me.anno.io.Saveable
+import me.anno.io.saveable.Saveable
 import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.objects.Transform
 import me.anno.remsstudio.objects.inspectable.InspectableAttribute
 import me.anno.remsstudio.objects.inspectable.InspectableVector
 import me.anno.remsstudio.objects.models.SphereAxesModel.sphereAxesModels
+import me.anno.remsstudio.ui.ComponentUIV2
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelList
 import me.anno.ui.editor.sceneView.Grid
@@ -47,9 +48,9 @@ abstract class Distribution(val nameDesc: NameDesc) : Saveable(), InspectableAtt
     override fun createInspector(list: PanelList, actor: Transform, style: Style) {
         val properties = listProperties()
         for (property in properties) {
-            list += actor.vi(
-                listOf(actor), property.title, property.description,
-                property.pType.type, property.value, style
+            list += ComponentUIV2.vi(
+                listOf(actor), actor, property.nameDesc.name, property.nameDesc.desc,
+                property.nameDesc.key, property.pType.type, property.value, style
             ) { it, _ -> property.value.set(it) }
         }
     }
@@ -65,7 +66,7 @@ abstract class Distribution(val nameDesc: NameDesc) : Saveable(), InspectableAtt
 
     fun drawSphere(stack: Matrix4fArrayList, color: Vector4f, alpha: Float = 1f) {
         Grid.drawLineMesh(
-            stack,
+            null, stack,
             if (alpha == 1f) color
             else color.mulAlpha(alpha, Vector4f()),
             sphereAxesModels[sphereSubDivision].value

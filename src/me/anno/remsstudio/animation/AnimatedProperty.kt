@@ -3,7 +3,7 @@ package me.anno.remsstudio.animation
 import me.anno.Time
 import me.anno.animation.Interpolation
 import me.anno.gpu.GFX.glThread
-import me.anno.io.Saveable
+import me.anno.io.saveable.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.maths.Maths.clamp
 import me.anno.remsstudio.RemsStudio.root
@@ -13,7 +13,7 @@ import me.anno.remsstudio.animation.Keyframe.Companion.getWeights
 import me.anno.remsstudio.animation.drivers.AnimationDriver
 import me.anno.remsstudio.utils.WrongClassType
 import me.anno.ui.input.NumberType
-import me.anno.utils.Color.black3
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.structures.lists.UnsafeArrayList
 import me.anno.utils.types.AnyToDouble.getDouble
 import org.apache.logging.log4j.LogManager
@@ -57,15 +57,11 @@ class AnimatedProperty<V>(var type: NumberType, var defaultValue: V) : Saveable(
         fun color3(defaultValue: Vector3f) = AnimatedProperty(NumberType.COLOR3, defaultValue)
         fun skew() = AnimatedProperty<Vector2f>(NumberType.SKEW_2D)
         fun tiling() = AnimatedProperty<Vector4f>(NumberType.TILING)
-
         fun string() = AnimatedProperty(NumberType.STRING, "")
         fun alignment() = AnimatedProperty(NumberType.ALIGNMENT, 0f)
-
-        // fun <V> set() = AnimatedProperty(NumberType.ANY, emptySet<V>())
-
     }
 
-    val drivers = arrayOfNulls<AnimationDriver>(type.components)
+    val drivers = arrayOfNulls<AnimationDriver>(type.numComponents)
 
     var isAnimated = false
     var lastChanged = 0L
@@ -326,7 +322,7 @@ class AnimatedProperty<V>(var type: NumberType, var defaultValue: V) : Saveable(
                 writer.writeSomething(this, "v", value0, true)
             }
         }
-        for (i in 0 until min(type.components, drivers.size)) {
+        for (i in 0 until min(type.numComponents, drivers.size)) {
             writer.writeObject(this, "driver$i", drivers[i])
         }
     }
@@ -353,16 +349,16 @@ class AnimatedProperty<V>(var type: NumberType, var defaultValue: V) : Saveable(
                         addKeyframe(value.time, clamp(castValue as V) as Any, 0.0)?.apply {
                             interpolation = value.interpolation
                         }
-                    } else LOGGER.warn("Dropped keyframe!, incompatible type ${value.value} for $type")
-                } else if (value is Array<*>) {
-                    for (vi in value.filterIsInstance<Keyframe<*>>()) {
+                    } else warnDroppedKeyframe(value)
+                } else if (value is List<*>) {
+                    for (vi in value.filterIsInstance2(Keyframe::class)) {
                         val castValue = type.acceptOrNull(vi.value)
                         if (castValue != null) {
                             @Suppress("UNCHECKED_CAST")
                             addKeyframe(vi.time, clamp(castValue as V) as Any, 0.0)?.apply {
                                 interpolation = vi.interpolation
                             }
-                        } else LOGGER.warn("Dropped keyframe!, incompatible type ${vi.value} for $type")
+                        } else warnDroppedKeyframe(vi)
                     }
                 } else WrongClassType.warn("keyframe", value as? Saveable)
             }
@@ -370,9 +366,13 @@ class AnimatedProperty<V>(var type: NumberType, var defaultValue: V) : Saveable(
         }
     }
 
+    private fun warnDroppedKeyframe(vi: Keyframe<*>){
+        LOGGER.warn("Dropped keyframe!, incompatible type ${vi.value} for $type")
+    }
+
     fun setDriver(index: Int, value: Saveable?) {
         if (index >= drivers.size) {
-            LOGGER.warn("Driver$index out of bounds for ${type.components}/${drivers.size}/$type")
+            LOGGER.warn("Driver$index out of bounds for ${type.numComponents}/${drivers.size}/$type")
             return
         }
         if (value is AnimationDriver) {
@@ -395,7 +395,7 @@ class AnimatedProperty<V>(var type: NumberType, var defaultValue: V) : Saveable(
                 } else LOGGER.warn("${src.value} is not accepted by $type")
                 // else convert the type??...
             }
-            for (i in 0 until type.components) {
+            for (i in 0 until type.numComponents) {
                 this.drivers[i] = obj.drivers.getOrNull(i)
             }
             lastChanged = Time.nanoTime

@@ -16,10 +16,9 @@ import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.max
 import me.anno.remsstudio.audio.effects.Domain
 import me.anno.remsstudio.audio.effects.SoundEffect
-import me.anno.remsstudio.audio.effects.SoundEffect.Companion.copy
 import me.anno.remsstudio.audio.effects.SoundPipeline.Companion.changeDomain
 import me.anno.remsstudio.audio.effects.Time
-import me.anno.remsstudio.objects.Audio
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.objects.Camera
 import me.anno.utils.Sleep.acquire
 import me.anno.utils.hpc.ProcessingQueue
@@ -151,30 +150,25 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
             FAPool.returnBuffer(freqRight)*/
         }
 
-        fun getBuffersOfDomain(domain: Domain): Pair<FloatArray, FloatArray> {
-            // if (isDestroyed > 0L) throw IllegalAccessException("Value was already destroyed")
+        fun getBuffersOfDomain(dst: Domain): Pair<FloatArray, FloatArray> {
             val buffer = this
-            var left = if (domain == Domain.FREQUENCY_DOMAIN) buffer.freqLeft else buffer.timeLeft
-            var right = if (domain == Domain.FREQUENCY_DOMAIN) buffer.freqRight else buffer.timeRight
+            var left = if (dst == Domain.FREQUENCY_DOMAIN) buffer.freqLeft else buffer.timeLeft
+            var right = if (dst == Domain.FREQUENCY_DOMAIN) buffer.freqRight else buffer.timeRight
             if (left == null) {
-                left = if (domain == Domain.TIME_DOMAIN) buffer.freqLeft else buffer.timeLeft
+                left = if (dst == Domain.TIME_DOMAIN) buffer.freqLeft else buffer.timeLeft
                 left!!
-                val other = if (domain == Domain.TIME_DOMAIN) Domain.FREQUENCY_DOMAIN else Domain.TIME_DOMAIN
-                val left2 = FloatArray(left.size) // FAPool[left.size]
-                copy(left, left2)
-                changeDomain(domain, other, left2)
+                val left2 = left.copyOf() // FAPool[left.size]
+                changeDomain(dst, left2)
                 left = left2
-                if (domain == Domain.TIME_DOMAIN) buffer.timeLeft = left else buffer.freqLeft = left
+                if (dst == Domain.TIME_DOMAIN) buffer.timeLeft = left else buffer.freqLeft = left
             }
             if (right == null) {
-                right = if (domain == Domain.TIME_DOMAIN) buffer.freqRight else buffer.timeRight
+                right = if (dst == Domain.TIME_DOMAIN) buffer.freqRight else buffer.timeRight
                 right!!
-                val other = if (domain == Domain.TIME_DOMAIN) Domain.FREQUENCY_DOMAIN else Domain.TIME_DOMAIN
-                val right2 = FloatArray(right.size) // FAPool[right.size]
-                copy(right, right2)
-                changeDomain(domain, other, right2)
+                val right2 = right.copyOf() // FAPool[right.size]
+                changeDomain(dst, right2)
                 right = right2
-                if (domain == Domain.TIME_DOMAIN) buffer.timeRight = right else buffer.freqRight = right
+                if (dst == Domain.TIME_DOMAIN) buffer.timeRight = right else buffer.freqRight = right
             }
             return left to right
         }
@@ -182,7 +176,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
     }
 
     fun getBuffer(
-        source: Audio,
+        source: Video,
         destination: Camera,
         pipelineKey: PipelineKey,
         domain: Domain,
@@ -197,7 +191,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
     // I don't know where these problems came from... in Release 1.1.2, they were fine
     private val rawDataLimiter = Semaphore(32)
     fun getRawData(
-        source: Audio,
+        source: Video,
         destination: Camera,
         key: PipelineKey
     ): AudioData = getRawData(
@@ -207,7 +201,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
 
     fun getRawData(
         meta: MediaMetadata,
-        source: Audio?,
+        source: Video?,
         destination: Camera?,
         key: PipelineKey
     ): AudioData {
@@ -221,9 +215,9 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
             )
             val pair = stream.getBuffer(key.bufferSize, key.time0.globalTime, key.time1.globalTime)
             AudioData(key, convert(pair.first), convert(pair.second), Domain.TIME_DOMAIN)
-        } as AudioData
+        }
         rawDataLimiter.release()
-        return entry
+        return entry!!
     }
 
     fun convert(src: ShortArray): FloatArray {
@@ -240,7 +234,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
 
     fun getBuffer0(
         meta: MediaMetadata,
-        source: Audio?,
+        source: Video?,
         destination: Camera?,
         pipelineKey: PipelineKey,
         async: Boolean
@@ -249,7 +243,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
         if (effectKey != null) throw IllegalStateException()
         return getEntry(pipelineKey, timeout, async) { key ->
             getRawData(meta, source, destination, key)
-        } as? AudioData
+        }
     }
 
     fun getBuffer0(
@@ -259,12 +253,12 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
     ): AudioData? = getBuffer0(meta, null, null, pipelineKey, async)
 
     fun getBuffer(
-        source: Audio,
+        source: Video,
         destination: Camera,
-        pipelineKey: PipelineKey,
+        key1: PipelineKey,
         async: Boolean
     ): AudioData? {
-        return getEntry(pipelineKey, timeout, async) { key ->
+        return getEntry(key1, timeout, async) { key ->
             val effectKey = key.effectKey
             if (effectKey == null) {
                 // get raw data
@@ -272,7 +266,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
             } else {
                 // get previous data, and process it
                 val effect = effectKey.effect
-                val previousKey = pipelineKey.lastEffectKey!!
+                val previousKey = key.lastEffectKey!!
                 val left = FAPool[bufferSize, true, true]
                 val right = FAPool[bufferSize, true, true]
                 val cachedSolutions = HashMap<Int, Pair<FloatArray, FloatArray>>()
@@ -288,18 +282,11 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
                 }, right, source, destination, key.time0, key.time1)
                 AudioData(key, left, right, effect.outputDomain)
             }
-        } as? AudioData
+        }
     }
 
     fun getBuffer(
-        source: Audio, destination: Camera,
-        bufferSize: Int,
-        async: Boolean,
-        getTime: (i: Int) -> Time
-    ) = getBuffer(source, destination, getKey(source, destination, bufferSize, getTime), async)
-
-    fun getBuffer(
-        source: Audio, destination: Camera,
+        source: Video, destination: Camera,
         bufferSize: Int,
         domain: Domain,
         async: Boolean,
@@ -316,7 +303,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
         t0: Double,
         t1: Double,
         identifier: String,
-        source: Audio,
+        source: Video,
         destination: Camera,
         async: Boolean = true
     ): ShortArray? {
@@ -327,7 +314,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
         return getRange(bufferSize, index0, index1, identifier, source, destination, async)
     }
 
-    private fun getTime(index: Long, audio: Audio): Time {
+    private fun getTime(index: Long, audio: Video): Time {
         val globalTime = index * bufferSize.toDouble() / playbackSampleRate
         val localTime = audio.getLocalTimeFromRoot(globalTime, false)
         return Time(localTime, globalTime)
@@ -362,7 +349,7 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
         index0: Long,
         index1: Long,
         identifier: String,
-        source: Audio,
+        source: Video,
         destination: Camera,
         async: Boolean = true
     ): ShortArray? {
@@ -414,12 +401,12 @@ object AudioFXCache2 : CacheSection("AudioFX-RS") {
                 data.value = values
             }
             data
-        } as? ShortData ?: return null
+        } ?: return null
         return entry.value
     }
 
     fun getKey(
-        source: Audio, destination: Camera, bufferSize: Int,
+        source: Video, destination: Camera, bufferSize: Int,
         getTime: (i: Int) -> Time
     ): PipelineKey {
         val time0 = getTime(0)

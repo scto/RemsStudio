@@ -4,6 +4,7 @@ import me.anno.config.DefaultConfig
 import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.GFX
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.Dict
 import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio.editorTime
 import me.anno.remsstudio.RemsStudio.motionBlurSteps
@@ -39,36 +40,35 @@ object RenderSettings : Transform() {
     override val defaultDisplayName get() = "Render Settings"
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
 
+        val prefix = "renderSettings"
         val project = project ?: throw IllegalStateException("Missing project")
         list += TextPanel(defaultDisplayName, style)
-            .apply { focusTextColor = textColor }
+            .apply { focusTextColor = textColor } // disable focus-color
         list += vi(
-            inspected,
-            "Duration (Seconds)",
-            "Video length in seconds",
-            NumberType.FLOAT_PLUS,
-            targetDuration,
-            style
+            inspected, "Duration (Seconds)", "Video length in seconds", "$prefix.videoLength",
+            NumberType.FLOAT_PLUS, targetDuration, style
         ) { it, _ ->
             project.targetDuration = it
             save()
         }
 
         list += vi(
-            inspected, "Relative Frame Size (%)", "For rendering tests, in percent",
+            inspected,
+            "Relative Frame Size (%)", "For rendering tests, in percent", "$prefix.relativeFrameSize",
             NumberType.FLOAT_PERCENT, project.targetSizePercentage, style
         ) { it, _ ->
             project.targetSizePercentage = it
             save()
         }
 
-        list += FrameSizeInput("Frame Size (Pixels)", "${project.targetWidth}x${project.targetHeight}", style)
+        list += FrameSizeInput(
+            NameDesc("Frame Size (Pixels)", "", "obj.$prefix.frameSizePixels"),
+            "${project.targetWidth}x${project.targetHeight}", style
+        )
             .setChangeListener { w, h ->
                 project.targetWidth = max(1, w)
                 project.targetHeight = max(1, h)
@@ -85,33 +85,33 @@ object RenderSettings : Transform() {
         if (project.targetFPS !in framesRates) framesRates.add(0, project.targetFPS)
 
         list += EnumInput(
-            "Frame Rate (Hz)",
-            true,
-            project.targetFPS.toString(),
+            NameDesc(
+                "Frame Rate (Hz)",
+                "Higher values give a smoother result, but render longer, and need more storage space.",
+                "obj.$prefix.frameRateHz"
+            ), NameDesc(project.targetFPS.toString()),
             framesRates.map { NameDesc(it.toString()) },
             style
         )
             .setChangeListener { value, _, _ ->
-                project.targetFPS = value.toDouble()
+                project.targetFPS = value.englishName.toDouble()
                 save()
             }
             .setTooltip("The fps of the video, or how many frame are shown per second")
 
         list += IntInput(
-            "Video Quality",
-            "VideoQuality",
-            project.targetVideoQuality,
-            NumberType.VIDEO_QUALITY_CRF,
-            style
+            NameDesc("Video Quality", "", "obj.$prefix.videoQuality"), "obj.videoQuality",
+            project.targetVideoQuality, NumberType.VIDEO_QUALITY_CRF, style
         )
             .setChangeListener {
                 project.targetVideoQuality = it.toInt()
                 save()
             }
-            .setTooltip("0 = lossless, 23 = default, 51 = worst; worse results have smaller file sizes")
+            .setTooltip(Dict["0 = lossless, 23 = default, 51 = worst; worse results have smaller file sizes", "obj.$prefix.videoQuality.desc"])
 
         val mbs = vi(
             "Motion-Blur-Steps", "0,1 = no motion blur, e.g. 16 = decent motion blur, sub-frames per frame",
+            "$prefix.motionBlurSteps",
             project.motionBlurSteps, style
         )
         val mbs0 = mbs.child as IntInput
@@ -123,10 +123,11 @@ object RenderSettings : Transform() {
         list += mbs
 
         list += BooleanInput(
-            "Render Transparency",
-            "Only supported by webm at the moment.",
-            project.targetTransparency,
-            false, style
+            NameDesc(
+                "Render Transparency",
+                "Only supported by webm at the moment.",
+                "obj.$prefix.renderTransparency"
+            ), project.targetTransparency, false, style
         ).setChangeListener {
             project.targetTransparency = it
             save()
@@ -135,7 +136,8 @@ object RenderSettings : Transform() {
         val samples = EnumInput(
             NameDesc(
                 "GPU Samples",
-                "Smoothes edges. 1 = default. Support depends on GPU.", ""
+                "Smooths edges. 1 = default. Support depends on GPU.",
+                "obj.$prefix.gpuSamples"
             ),
             NameDesc("MSAA ${project.targetSamples}x"),
             listOf(1, 2, 4, 8, 16, 32, 64, 128).map {
@@ -164,8 +166,8 @@ object RenderSettings : Transform() {
         val shp = vi(
             "Shutter-Percentage (0-1)",
             "[Motion Blur] 1 = full frame is used; 0.1 = only 1/10th of a frame time is used",
-            project.shutterPercentage,
-            style
+            "$prefix.shutterPercentage",
+            project.shutterPercentage, style
         )
         val shp0 = shp.child as FloatInput
         val shpListener = shp0.changeListener
@@ -176,20 +178,28 @@ object RenderSettings : Transform() {
         list += shp
 
         list += EnumInput(
-            "Encoding Speed / Compression",
-            "How much time is spent on compressing the video into a smaller file",
-            "ui.ffmpeg.encodingSpeed",
-            project.ffmpegBalance.nameDesc,
-            FFMPEGEncodingBalance.values().map { it.nameDesc },
-            style
-        ).setChangeListener { _, index, _ -> project.ffmpegBalance = FFMPEGEncodingBalance.values()[index]; save() }
+            NameDesc(
+                "Encoding Speed / Compression",
+                "How much time is spent on compressing the video into a smaller file",
+                "obj.$prefix.encodingSpeed"
+            ),
+            project.ffmpegBalance.nameDesc, FFMPEGEncodingBalance.entries.map { it.nameDesc }, style
+        ).setChangeListener { _, index, _ -> project.ffmpegBalance = FFMPEGEncodingBalance.entries[index]; save() }
 
         list += EnumInput(
-            "Encoding Type", "Helps FFMPEG with the encoding process", "ui.ffmpeg.flags.input",
-            project.ffmpegFlags.nameDesc, FFMPEGEncodingType.values().map { it.nameDesc }, style
-        ).setChangeListener { _, index, _ -> project.ffmpegFlags = FFMPEGEncodingType.values()[index]; save() }
+            NameDesc(
+                "Encoding Type",
+                "Helps FFMPEG with the encoding process",
+                "obj.$prefix.encodingType"
+            ),
+            project.ffmpegFlags.nameDesc, FFMPEGEncodingType.entries.map { it.nameDesc }, style
+        ).setChangeListener { _, index, _ -> project.ffmpegFlags = FFMPEGEncodingType.entries[index]; save() }
 
-        val fileInput = FileInput("Output File", style, targetOutputFile, emptyList())
+        val fileInput = FileInput(
+            NameDesc("Output File", "", "obj.$prefix.outputFile"),
+            style, targetOutputFile, emptyList()
+        )
+        fileInput.setTooltip(Dict["Where the render result shall be stored/saved.", "obj.$prefix.outputFile.desc"])
         val originalColor = fileInput.base2.textColor
         fun updateFileInputColor() {
             val file = project.targetOutputFile
@@ -206,7 +216,7 @@ object RenderSettings : Transform() {
         }
 
         updateFileInputColor()
-        fileInput.setChangeListener { file ->
+        fileInput.addChangeListener { file ->
             project.targetOutputFile = file
             updateFileInputColor()
             save()
@@ -215,28 +225,55 @@ object RenderSettings : Transform() {
 
         val callback: () -> Unit = { GFX.someWindow.requestAttentionMaybe() }
 
-        list += TextButton("Render at 100%", false, style)
-            .addLeftClickListener { renderPart(1, true, callback) }
-            .setTooltip("Create video at full resolution")
-        list += TextButton("Render at 50%", false, style)
-            .addLeftClickListener { renderPart(2, true, callback) }
-            .setTooltip("Create video at half resolution")
-        list += TextButton("Render at 25%", false, style)
-            .addLeftClickListener { renderPart(4, true, callback) }
-            .setTooltip("Create video at quarter resolution")
-        list += TextButton("Render at Set%", false, style)
-            .addLeftClickListener { renderSetPercent(true, callback) }
-            .setTooltip("Create video at your custom set relative resolution")
-        list += TextButton("Render Audio only", false, style)
-            .addLeftClickListener { renderAudio(true, callback) }
-            .setTooltip("Only creates an audio file; no video is rendered nor saved.")
-        list += TextButton("Override Audio", false, style)
-            .addLeftClickListener { overrideAudio(callback) }
-            .setTooltip("Overrides the audio of the selected file; this is useful to fix too quiet videos.")
-        list += TextButton("Render Current Frame", false, style)
-            .addLeftClickListener { renderFrame(targetWidth, targetHeight, editorTime, true, callback) }
-            .setTooltip("Renders the current frame into an image file.")
-
+        list += TextButton(
+            NameDesc(
+                "Render at 100%",
+                "Create video at full resolution",
+                "obj.$prefix.render100Percent"
+            ), false, style
+        ).addLeftClickListener { renderPart(1, true, callback) }
+        list += TextButton(
+            NameDesc(
+                "Render at 50%",
+                "Create video at half resolution",
+                "obj.$prefix.render50Percent"
+            ), false, style
+        ).addLeftClickListener { renderPart(2, true, callback) }
+        list += TextButton(
+            NameDesc(
+                "Render at 25%",
+                "Create video at quarter resolution",
+                "obj.$prefix.render25Percent"
+            ), false, style
+        ).addLeftClickListener { renderPart(4, true, callback) }
+        list += TextButton(
+            NameDesc(
+                "Render at Set%",
+                "Create video at your custom set relative resolution",
+                "obj.$prefix.renderSetPercent"
+            ), false, style
+        ).addLeftClickListener { renderSetPercent(true, callback) }
+        list += TextButton(
+            NameDesc(
+                "Render Audio only",
+                "Only creates an audio file; no video is rendered nor saved.",
+                "obj.$prefix.renderAudio"
+            ), false, style
+        ).addLeftClickListener { renderAudio(true, callback) }
+        list += TextButton(
+            NameDesc(
+                "Override Audio",
+                "Overrides the audio of the selected file; this is useful to fix too quiet videos.",
+                "obj.$prefix.overrideAudio"
+            ), false, style
+        ).addLeftClickListener { overrideAudio(callback) }
+        list += TextButton(
+            NameDesc(
+                "Render Current Frame",
+                "Renders the current frame into an image file.",
+                "obj.$prefix.renderCurrentFrame"
+            ), false, style
+        ).addLeftClickListener { renderFrame(targetWidth, targetHeight, editorTime, true, callback) }
     }
 
     private val savingTask = DelayedTask { actuallySave() }

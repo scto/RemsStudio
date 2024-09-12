@@ -11,14 +11,15 @@ import me.anno.gpu.GFXState
 import me.anno.gpu.debug.DebugGPUStorage
 import me.anno.input.ActionManager
 import me.anno.input.Input
-import me.anno.input.Modifiers
 import me.anno.io.files.Reference.getReference
 import me.anno.io.utils.StringMap
+import me.anno.language.translation.Dict
 import me.anno.remsstudio.RemsStudio.hoveredPanel
 import me.anno.remsstudio.objects.modes.TransformVisibility
 import me.anno.remsstudio.ui.editor.TimelinePanel
 import me.anno.ui.Panel
 import me.anno.ui.WindowStack.Companion.printLayout
+import me.anno.ui.input.components.TitlePanel
 import me.anno.utils.structures.lists.Lists.any2
 import org.apache.logging.log4j.LogManager
 import kotlin.math.round
@@ -40,17 +41,16 @@ object StudioActions {
 
     private fun isInputInFocus(): Boolean {
         return GFX.windows.any2 { w ->
-            w.windowStack.inFocus.any2 { p ->
-                p.anyInHierarchy { pi ->
-                    pi is Panel && pi.isKeyInput()
-                }
-            }
+            val inFocus = w.windowStack.inFocus0
+            inFocus != null &&
+                    inFocus !is TitlePanel &&
+                    inFocus.anyInHierarchy { pi -> pi is Panel && pi.isKeyInput() }
         }
     }
 
     private var lastTimeDilationChange = 0L
     fun setEditorTimeDilation(dilation: Double, allowKeys: Boolean = false): Boolean {
-        val currentTime = Time.lastTimeNanos
+        val currentTime = Time.frameTimeNanos
         if (currentTime == lastTimeDilationChange || (!allowKeys && isInputInFocus())) {
             return false
         }
@@ -84,6 +84,7 @@ object StudioActions {
             "PlayReversedSlow" to { setEditorTimeDilation(-0.2) },
             "ToggleFullscreen" to { GFX.someWindow.toggleFullscreen(); true },
             "PrintLayout" to { printLayout();true },
+            "PrintDictDefaults" to { Dict.printDefaults();true },
             "NextFrame" to {
                 nextFrame()
                 true
@@ -254,25 +255,25 @@ object StudioActions {
             register["global.l.t.c", "ResetOpenGLSession"]
         }
 
-        register["global.space.down.${Modifiers[false, false]}", "Play|Pause"]
-        register["global.space.down.${Modifiers[false, true]}", "PlaySlow|Pause"]
-        register["global.space.down.${Modifiers[true, false]}", "PlayReversed|Pause"]
-        register["global.space.down.${Modifiers[true, true]}", "PlayReversedSlow|Pause"]
+        register["global.space.down", "Play|Pause"]
+        register["global.space.down.s", "PlaySlow|Pause"]
+        register["global.space.down.c", "PlayReversed|Pause"]
+        register["global.space.down.cs", "PlayReversedSlow|Pause"]
         register["global.f11.down", "ToggleFullscreen"]
         register["global.print.down", "PrintLayout"]
         register["global.left.up", "DragEnd"]
-        register["global.f5.down.${Modifiers[true, false]}", "ClearCache"]
+        register["global.f5.down.c", "ClearCache"]
         register["global.arrowLeft.t", "PreviousStep"]
         register["global.arrowRight.t", "NextStep"]
         register["global.arrowLeft.down.c", "Jump2Start"]
         register["global.arrowRight.down.c", "Jump2End"]
         register["global.comma.t", "PreviousFrame"]
         register["global.dot.t", "NextFrame"]
-        register["global.z.t.${Modifiers[true, false]}", "Undo"]
-        register["global.z.t.${Modifiers[true, true]}", "Redo"]
-        register["global.y.t.${Modifiers[true, false]}", "Undo"]
-        register["global.y.t.${Modifiers[true, true]}", "Redo"]
-        register["global.h.t.${Modifiers[false, false, true]}", "ShowAllObjects"]
+        register["global.z.t.c", "Undo"]
+        register["global.z.t.cs", "Redo"]
+        register["global.y.t.c", "Undo"]
+        register["global.y.t.cs", "Redo"]
+        register["global.h.t.a", "ShowAllObjects"]
         register["global.h.t", "ToggleHideObject"]
 
         // press instead of down for the delay
@@ -307,13 +308,18 @@ object StudioActions {
 
         register["StudioSceneView.right.p", "Turn"]
         register["StudioSceneView.left.p", "MoveObject"]
-        register["StudioSceneView.left.p.${Modifiers[false, true]}", "MoveObjectAlternate"]
+        register["StudioSceneView.left.p.s", "MoveObjectAlternate"]
 
         for (i in 0 until 10) {
-            // keyMap["SceneView.$i.down", "Cam$i"]
-            register["StudioSceneView.numpad$i.down", "Cam$i"]
-            // keyMap["SceneView.$i.down.${Modifiers[true, false]}", "Cam$i"]
-            register["StudioSceneView.numpad$i.down.${Modifiers[true, false]}", "Cam$i"]
+            fun registerForClass(clazz: String) {
+                // not everyone has a numpad -> support normal number keys, too
+                val action = "Cam$i"
+                register["$clazz.$i.down", action]
+                register["$clazz.$i.down.c", action]
+                register["$clazz.numpad$i.down", action]
+                register["$clazz.numpad$i.down.c", action]
+            }
+            registerForClass("StudioSceneView")
         }
 
         register["StudioSceneView.w.p", "MoveForward"]

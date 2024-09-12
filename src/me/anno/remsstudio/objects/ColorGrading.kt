@@ -1,5 +1,6 @@
 package me.anno.remsstudio.objects
 
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.ui.Panel
 import me.anno.ui.Style
@@ -16,11 +17,11 @@ object ColorGrading {
         cgOffsetAdd: List<AnimatedProperty<*>>,
         cgOffsetSub: List<AnimatedProperty<*>>,
         img: (Panel) -> Panel,
-        getGroup: (name: String, ttt: String, id: String) -> SettingCategory,
+        getGroup: (NameDesc) -> SettingCategory,
         style: Style
     ) {
 
-        val group = getGroup("Color Grading (ASC CDL)", "", "color-grading")
+        val group = getGroup(NameDesc("Color Grading (ASC CDL)", "", "obj.color-grading"))
         group.addChild(
             img(TextPanel(
                 "" +
@@ -37,24 +38,24 @@ object ColorGrading {
         val t = c[0]
         val power = t.vis(
             c, "Power", "sRGB, Linear, ...",
-            "cg.power", "cg.power", cgPower, style
+            "cg.power", cgPower, style
         )
         val slope = t.vis(
             c, "Slope", "Intensity or Tint",
-            "cg.slope", "cg.slope", cgSlope, style
+            "cg.slope", cgSlope, style
         )
         val offset1 = t.vis(
             c, "Plus Offset", "Can be used to color black objects",
-            "cg.offset", "cg.offset", cgOffsetAdd, style
+            "cg.offset", cgOffsetAdd, style
         )
         val offset2 = t.vis(
             c, "Minus Offset", "Can be used to color white objects",
-            "cg.offset.sub", "cg.offset.sub", cgOffsetSub, style
+            "cg.offset.sub", cgOffsetSub, style
         )
 
         val sat = t.vis(
             c, "Saturation", "0 = gray scale, 1 = normal, -1 = inverted colors",
-            "cg.saturation", "cg.saturation", cgSaturation, style
+            "cg.saturation", cgSaturation, style
         )
 
         group.addChild(img(power))

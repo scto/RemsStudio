@@ -1,12 +1,14 @@
 package me.anno.remsstudio.objects.particles.forces.impl
 
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.pow
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.inspectable.InspectableAnimProperty
 import me.anno.remsstudio.objects.particles.forces.types.RelativeForceField
 import org.joml.Vector3f
 
+@Suppress("MemberVisibilityCanBePrivate")
 class GravityField : RelativeForceField(
     "Central Gravity",
     "Gravity towards a single point", "centralGravity"
@@ -22,9 +24,11 @@ class GravityField : RelativeForceField(
     override fun listProperties(): List<InspectableAnimProperty> {
         return super.listProperties() + listOf(
             InspectableAnimProperty(
-                exponent,
-                "Exponent",
-                "How quickly the force declines with distance"
+                exponent, NameDesc(
+                    "Exponent",
+                    "How quickly the force declines with distance",
+                    "obj.effect.gravityExponent"
+                )
             )
         )
     }

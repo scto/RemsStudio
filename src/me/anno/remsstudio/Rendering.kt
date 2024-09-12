@@ -1,8 +1,9 @@
 package me.anno.remsstudio
 
 import me.anno.engine.EngineBase.Companion.workspace
+import me.anno.engine.Events.addEvent
 import me.anno.gpu.GFX
-import me.anno.gpu.GFXBase
+import me.anno.gpu.WindowManagement
 import me.anno.io.MediaMetadata.Companion.getMeta
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
@@ -14,17 +15,20 @@ import me.anno.remsstudio.RemsStudio.shutterPercentage
 import me.anno.remsstudio.RemsStudio.targetOutputFile
 import me.anno.remsstudio.RemsStudio.targetTransparency
 import me.anno.remsstudio.audio.AudioCreatorV2
-import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
 import me.anno.remsstudio.objects.Transform
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.video.FrameTaskV2
 import me.anno.remsstudio.video.videoAudioCreatorV2
 import me.anno.ui.base.menu.Menu.ask
 import me.anno.ui.base.menu.Menu.msg
 import me.anno.ui.base.progress.ProgressBar
 import me.anno.utils.files.FileChooser
-import me.anno.utils.types.Strings.defaultImportType
-import me.anno.utils.types.Strings.getImportType
+import me.anno.utils.files.FileExtensionFilter
+import me.anno.utils.structures.Collections.filterIsInstance2
+import me.anno.utils.structures.lists.Lists.firstInstanceOrNull2
+import me.anno.utils.types.Strings
+import me.anno.utils.types.Strings.getImportTypeByExtension
 import me.anno.video.VideoCreator
 import me.anno.video.VideoCreator.Companion.defaultQuality
 import me.anno.video.ffmpeg.FFMPEGEncodingBalance
@@ -39,11 +43,11 @@ object Rendering {
 
     var isRendering = false
         set(value) {
-            GFXBase.mayIdle = !value
+            WindowManagement.mayIdle = !value
             field = value
         }
 
-    val div = 4
+    const val minimumDivisor = 4
 
     private val LOGGER = LogManager.getLogger(Rendering::class)
 
@@ -54,15 +58,15 @@ object Rendering {
     fun renderSetPercent(ask: Boolean, callback: () -> Unit) {
         val project = project ?: throw IllegalStateException("Missing project")
         renderVideo(
-            max(div, (project.targetWidth * project.targetSizePercentage / 100).roundToInt()),
-            max(div, (project.targetHeight * project.targetSizePercentage / 100).roundToInt()),
+            max(minimumDivisor, (project.targetWidth * project.targetSizePercentage / 100).roundToInt()),
+            max(minimumDivisor, (project.targetHeight * project.targetSizePercentage / 100).roundToInt()),
             ask, callback
         )
     }
 
-    fun filterAudio(scene: Transform): List<Audio> {
+    fun filterAudio(scene: Transform): List<Video> {
         return scene.listOfAll
-            .filterIsInstance<Audio>()
+            .filterIsInstance2(Video::class)
             .filter {
                 it.forcedMeta?.hasAudio == true && (it.amplitude.isAnimated || it.amplitude[0.0] * 32e3f > 1f)
             }.toList()
@@ -70,8 +74,8 @@ object Rendering {
 
     fun renderVideo(width: Int, height: Int, ask: Boolean, callback: () -> Unit) {
 
-        val divW = width % div
-        val divH = height % div
+        val divW = width % minimumDivisor
+        val divH = height % minimumDivisor
         if (divW != 0 || divH != 0) return renderVideo(
             width - divW,
             height - divH,
@@ -177,8 +181,8 @@ object Rendering {
     }
 
     private fun findCamera(scene: Transform): Camera {
-        val cameras = scene.listOfAll.filterIsInstance<Camera>()
-        return cameras.firstOrNull() ?: RemsStudio.nullCamera ?: Camera()
+        val camera0 = scene.listOfAll.firstInstanceOrNull2(Camera::class)
+        return camera0 ?: RemsStudio.nullCamera ?: Camera()
     }
 
     fun overrideAudio(callback: () -> Unit) {
@@ -188,20 +192,28 @@ object Rendering {
             allowFiles = true, allowFolders = false,
             allowMultiples = false, toSave = false,
             startFolder = project?.scenes ?: workspace,
-            filters = emptyList() // todo video filter
-        ) {
-            if (it.size == 1) {
-                val video = it.first()
-                if (video != project?.targetOutputFile) {
-                    overrideAudio(video, callback)
+            filters = listOf(
+                FileExtensionFilter(
+                    NameDesc("Video"),
+                    Strings.findImportTypeExtensions("Video")
+                ),
+                FileExtensionFilter(NameDesc("*"), emptyList())
+            )
+        ) { videoSources ->
+            if (videoSources.size == 1) {
+                val videoSrc = videoSources.first()
+                if (videoSrc != project?.targetOutputFile) {
+                    addEvent { // wait for other window to be closed, so the progress bar chooses a good window
+                        overrideAudio(videoSrc, callback)
+                    }
                 } else LOGGER.warn("Files must not be the same")
             }
         }
     }
 
-    fun overrideAudio(video: FileReference, callback: () -> Unit) {
+    fun overrideAudio(videoSrc: FileReference, callback: () -> Unit) {
 
-        val meta = getMeta(video, false)!!
+        val meta = getMeta(videoSrc, false)!!
 
         isRendering = true
         LOGGER.info("Rendering audio onto video")
@@ -215,7 +227,6 @@ object Rendering {
         // if empty, skip?
         LOGGER.info("Found ${audioSources.size} audio sources")
 
-        // todo progress bar didn't show up :/, why?
         val progress = GFX.someWindow.addProgressBar(object :
             ProgressBar("Audio Override", "Samples", duration * sampleRate) {
             override fun formatProgress(): String {
@@ -224,13 +235,14 @@ object Rendering {
         })
         AudioCreatorV2(scene, findCamera(scene), audioSources, duration, sampleRate, progress).apply {
             onFinished = {
+                println("Finished overriding audio")
                 isRendering = false
                 progress.finish()
                 callback()
                 targetOutputFile.invalidate()
             }
             thread(name = "Rendering::renderAudio()") {
-                createOrAppendAudio(targetOutputFile, video, false)
+                createOrAppendAudio(targetOutputFile, videoSrc, false)
             }
         }
     }
@@ -257,15 +269,12 @@ object Rendering {
 
         // todo if is empty, send a warning instead of doing something
 
-        fun createProgressBar(): ProgressBar {
-            return object : ProgressBar("Audio Export", "Samples", duration * sampleRate) {
+        val progress = GFX.someWindow.addProgressBar(
+            object : ProgressBar("Audio Export", "Samples", duration * sampleRate) {
                 override fun formatProgress(): String {
                     return "$name: ${progress.toLong()} / ${total.toLong()} $unit"
                 }
-            }
-        }
-
-        val progress = GFX.someWindow.addProgressBar(createProgressBar())
+            })
         AudioCreatorV2(scene, findCamera(scene), audioSources, duration, sampleRate, progress).apply {
             onFinished = {
                 isRendering = false
@@ -318,8 +327,8 @@ object Rendering {
                 targetOutputFile = targetOutputFile.getSiblingWithExtension(defaultExtension)
             }
         } while (file0 !== targetOutputFile)
-        val importType = targetOutputFile.extension.getImportType()
-        if (importType == defaultImportType && RenderType.entries.none { importType == it.importType }) {
+        val importType = getImportTypeByExtension(targetOutputFile.lcExtension)
+        if (importType == "Text" && RenderType.entries.none { importType == it.importType }) {
             LOGGER.warn("The file extension .${targetOutputFile.extension} is unknown! Your export may fail!")
             return targetOutputFile
         }

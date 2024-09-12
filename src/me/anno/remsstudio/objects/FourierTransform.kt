@@ -10,6 +10,7 @@ import me.anno.io.MediaMetadata
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.fract
@@ -26,6 +27,7 @@ import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.NumberType
 import me.anno.utils.files.LocalFile.toGlobalFile
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.video.MissingFrameException
 import org.joml.Matrix4f
 import org.joml.Matrix4fArrayList
@@ -41,6 +43,7 @@ import kotlin.math.sqrt
 
 // todo write a wiki entry about this
 
+@Suppress("MemberVisibilityCanBePrivate")
 class FourierTransform : Transform() {
 
     val meta get() = MediaMetadata.getMeta(file, true)
@@ -66,7 +69,7 @@ class FourierTransform : Transform() {
     var enableHalfBuffers = true
 
     // support audio effects stack? no, the user can go the extra step of rendering it,
-    // it they need something that specific; if I get many requests for it, I can implement it later
+    // if they need something that specific; if I get many requests for it, I can implement it later
     var file: FileReference = InvalidRef
 
     // todo we need references
@@ -219,7 +222,7 @@ class FourierTransform : Transform() {
 
     fun getKey(sampleIndex0: Long, half: Boolean): AudioFXCache2.PipelineKey {
         val fraction = if (half) 0.5 else 0.0
-        return getKey { Time(AudioFXCache2.getTime(sampleIndex0 + it, fraction, bufferSize, sampleRate)) }
+        return getKey { Time(getTime(sampleIndex0 + it, fraction, bufferSize, sampleRate)) }
     }
 
     fun getKey(getTime: (Int) -> Time): AudioFXCache2.PipelineKey {
@@ -241,20 +244,19 @@ class FourierTransform : Transform() {
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<FourierTransform>()
-        val fourier = getGroup("Fourier Transform", "", "fourier")
+        val c = inspected.filterIsInstance2(FourierTransform::class)
+        val fourier = getGroup(NameDesc("Fourier Transform", "", "obj.fourier"))
         list.addChild(vi(
-            inspected, "Audio File", "", null, file, style
+            inspected, "Audio File", "Source file, which gets used as an input into the FFT", "fourier.sourceFile",
+            null, file, style
         ) { it, _ -> for (x in c) x.file = it })
         fourier.addChild(
             vi(
-                inspected, "Sample Rate", "What the highest frequency should be",
+                inspected, "Sample Rate", "What the highest frequency should be", "fourier.sampleRate",
                 // higher frequencies are eliminated, because we interpolate samples (I think...)
                 sampleRateType, sampleRate, style
             ) { it, _ -> for (x in c) x.sampleRate = max(64, it) })
@@ -262,28 +264,64 @@ class FourierTransform : Transform() {
             vi(
                 inspected, "Buffer Size",
                 "Should be at least twice the buffer size, 'Resolution' of the fourier transform, and length of samples per batch",
-                bufferSizeType,
-                bufferSize,
-                style
+                "fourier.bufferSize",
+                bufferSizeType, bufferSize, style
             ) { it, _ -> for (x in c) x.bufferSize = max(64, it) })
         fourier.addChild(
             vi(
                 inspected, "Buffer Min", "Use only a part of the fourier transform; -1 = disabled",
+                "fourier.bufferMin",
                 null, minBufferIndex, style
             ) { it, _ -> for (x in c) x.minBufferIndex = it })
         fourier.addChild(
             vi(
                 inspected, "Buffer Max", "Use only a part of the fourier transform; -1 = disabled",
+                "fourier.bufferMax",
                 null, maxBufferIndex, style
             ) { it, _ -> for (x in c) x.maxBufferIndex = it })
-        val amplitude = getGroup("Amplitude", "", "amplitude")
-        amplitude.addChild(vis(c, "Position, Linear", "", c.map { it.posLin }, style))
-        amplitude.addChild(vis(c, "Position, Logarithmic", "", c.map { it.posLog }, style))
-        amplitude.addChild(vis(c, "Rotation, Linear", "", c.map { it.rotLin }, style))
-        amplitude.addChild(vis(c, "Rotation, Logarithmic", "", c.map { it.rotLog }, style))
-        amplitude.addChild(vis(c, "Scale, Offset", "", c.map { it.scaOff }, style))
-        amplitude.addChild(vis(c, "Scale, Linear", "", c.map { it.scaLin }, style))
-        amplitude.addChild(vis(c, "Scale, Logarithmic", "", c.map { it.scaLog }, style))
+        val amplitude = getGroup(NameDesc("Amplitude", "", "obj.amplitude"))
+        amplitude.addChild(
+            vis(
+                c, "Position, Linear", "", "fourier.position.linear",
+                c.map { it.posLin }, style
+            )
+        )
+        amplitude.addChild(
+            vis(
+                c, "Position, Logarithmic", "", "fourier.position.logarithmic",
+                c.map { it.posLog }, style
+            )
+        )
+        amplitude.addChild(
+            vis(
+                c, "Rotation, Linear", "", "fourier.rotation.linear",
+                c.map { it.rotLin }, style
+            )
+        )
+        amplitude.addChild(
+            vis(
+                c, "Rotation, Logarithmic", "", "fourier.rotation.logarithmic",
+                c.map { it.rotLog }, style
+            )
+        )
+        amplitude.addChild(
+            vis(
+                c, "Scale, Offset", "", "fourier.scale.offset",
+                c.map { it.scaOff }, style
+            )
+        )
+        amplitude.addChild(
+            vis(
+                c, "Scale, Linear", "", "fourier.scale.linear",
+                c.map { it.scaLin }, style
+            )
+        )
+        amplitude.addChild(
+            vis(
+                c, "Scale, Logarithmic", "", "fourier.scale.logarithmic",
+                c.map { it.scaLog }, style
+            )
+        )
     }
 
     override fun drawChildrenAutomatically(): Boolean = false

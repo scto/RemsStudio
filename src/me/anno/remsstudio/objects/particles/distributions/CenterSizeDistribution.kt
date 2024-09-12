@@ -8,6 +8,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
+@Suppress("MemberVisibilityCanBePrivate")
 abstract class CenterSizeDistribution(
     nameDesc: NameDesc,
     center: Vector4f,
@@ -73,17 +74,17 @@ abstract class CenterSizeDistribution(
     }
 
     override fun listProperties(): List<InspectableVector> {
-        return listOf(
-            InspectableVector(center, "Center", InspectableVector.PType.DEFAULT),
-            InspectableVector(scale, "Radius / Size", InspectableVector.PType.SCALE),
-            InspectableVector(rotation, "Rotation", InspectableVector.PType.ROTATION)
+        val prefix = "obj.distribution"
+        return super.listProperties() + listOf(
+            InspectableVector(scale, NameDesc("Radius / Size", "", "$prefix.radius"), InspectableVector.PType.SCALE),
+            InspectableVector(rotation, NameDesc("Rotation", "", "$prefix.rotation"), InspectableVector.PType.ROTATION)
         )
     }
 
     companion object {
-        val POSITION_INDEX = 0
-        val SCALE_INDEX = 1
-        val ROTATION_INDEX = 2
+        const val POSITION_INDEX = 0
+        const val SCALE_INDEX = 1
+        const val ROTATION_INDEX = 2
     }
 
 }

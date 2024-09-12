@@ -30,18 +30,19 @@ import me.anno.ui.editor.stacked.Option
 import me.anno.ui.input.BooleanInput
 import me.anno.ui.input.NumberType
 import me.anno.utils.hpc.HeavyProcessing.processBalanced
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.structures.ValueWithDefault
 import me.anno.utils.structures.ValueWithDefault.Companion.writeMaybe
 import me.anno.video.MissingFrameException
 import org.joml.Matrix4fArrayList
 import org.joml.Vector3f
 import org.joml.Vector4f
-import java.net.URL
 import java.util.*
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+@Suppress("MemberVisibilityCanBePrivate")
 open class ParticleSystem(parent: Transform? = null) : Transform(parent) {
 
     override fun getDocumentationURL() = "https://remsstudio.phychi.com/?s=learn/particle-systems"
@@ -83,7 +84,7 @@ open class ParticleSystem(parent: Transform? = null) : Transform(parent) {
     override fun getStartTime(): Double = Double.NEGATIVE_INFINITY
     override fun getEndTime(): Double = Double.POSITIVE_INFINITY
 
-    val forces get() = children.filterIsInstance<ForceField>()
+    val forces get() = children.filterIsInstance2(ForceField::class)
 
     private fun spawnIfRequired(time: Double, onlyFirst: Boolean) {
 
@@ -295,20 +296,18 @@ open class ParticleSystem(parent: Transform? = null) : Transform(parent) {
     var selectedDistribution: AnimatedDistribution = spawnPosition
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
 
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<ParticleSystem>()
+        val c = inspected.filterIsInstance2(ParticleSystem::class)
 
         var viCtr = 0
         fun vi(c: List<ParticleSystem>, name: String, description: String, properties: List<AnimatedDistribution>) {
             val property = properties.first()
             fun getName() = "$name: ${property.distribution.className.split("Distribution").first()}"
-            val group = getGroup(getName(), description, "$viCtr")
+            val group = getGroup(NameDesc(getName(), description, "$viCtr"))
             group.addChild(SpyPanel(style) {
                 if (group.isAnyChildInFocus) {
                     var needsUpdate = false
@@ -335,12 +334,12 @@ open class ParticleSystem(parent: Transform? = null) : Transform(parent) {
                             clearCache()
                             group.content.clear()
                             group.titlePanel.text = getName()
-                            property.createInspector(c, properties, name, group.content, this, style)
+                            property.createInspector(c, properties, group.content, style)
                         }
                     }
                 )
             }
-            property.createInspector(c, properties, name, group.content, this, style)
+            property.createInspector(c, properties, group.content, style)
             viCtr++
         }
 
@@ -359,19 +358,19 @@ open class ParticleSystem(parent: Transform? = null) : Transform(parent) {
         vt("opacity", "Opacity", "Initial particle opacity (1-transparency)", c.map { it.spawnOpacity })
         vt("size", "Size", "Initial particle size", c.map { it.spawnSize })
 
-        val general = getGroup("Particle System", "", "particles")
+        val general = getGroup(NameDesc("Particle System", "", "obj.particles"))
 
         general += vis(
-            c,
-            "Spawn Rate",
+            c, "Spawn Rate",
             "How many particles are spawned per second",
-            "",
+            "particles.spawnRate",
             c.map { it.spawnRate },
             style
         )
         general += vi(
             inspected, "Simulation Step",
             "Larger values are faster, while smaller values are more accurate for forces",
+            "particles.simulationStep",
             NumberType.DOUBLE, simulationStep, style
         ) { it, _ ->
             if (it > 1e-9) for (x in c) x.simulationStep = it
@@ -381,16 +380,19 @@ open class ParticleSystem(parent: Transform? = null) : Transform(parent) {
         // general += vi("Fade In", "Time from spawning to the max. opacity", fadeIn, style)
         // general += vi("Fade Out", "Time before death, from which is starts to fade away", fadeOut, style)
 
-        general += BooleanInput("Show Children", showChildren, false, style)
+        general += BooleanInput(NameDesc("Show Children"), showChildren, false, style)
             .setChangeListener { for (x in c) x.showChildren = it }
-            .setIsSelectedListener { show(inspected.filterIsInstance<Transform>(), null) }
+            .setIsSelectedListener { show(inspected.filterIsInstance2(Transform::class), null) }
 
-        general += vi(inspected, "Seed", "The seed for all randomness", null, seed, style) { it, _ ->
+        general += vi(
+            inspected, "Seed", "The seed for all randomness", "particles.seed",
+            null, seed, style
+        ) { it, _ ->
             for (x in c) x.seed = it
             clearCache()
         }
 
-        general += TextButton("Reset Cache", false, style)
+        general += TextButton(NameDesc("Reset Cache"), false, style)
             .addLeftClickListener { for (x in c) x.clearCache() }
 
     }
@@ -471,7 +473,7 @@ open class ParticleSystem(parent: Transform? = null) : Transform(parent) {
         LOGGER.info("${timeSum/timeCtr}ms")*/
         // 0.3-0.5 ms -> could be improved
         // -> improved it to ~ 0.056 ms by avoiding a full copy
-        // could be improved to 0.045 ms (~20%) by using a binary writer
+        // could be improved to 0.045 ms (~20%) by using a binary writer,
         // but it's less well readable -> use the more expensive version;
         // the gain is just too small for the costs
         return builder.toString()

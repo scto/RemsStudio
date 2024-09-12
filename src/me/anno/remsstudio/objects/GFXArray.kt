@@ -4,11 +4,13 @@ import me.anno.config.DefaultConfig
 import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.modes.ArraySelectionMode
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.types.Floats.toRadians
 import org.joml.Matrix4fArrayList
 import org.joml.Vector2f
@@ -16,6 +18,7 @@ import org.joml.Vector3f
 import org.joml.Vector4f
 import java.util.*
 
+@Suppress("MemberVisibilityCanBePrivate")
 class GFXArray(parent: Transform? = null) : GFXTransform(parent) {
 
     val perChildTranslation = AnimatedProperty.pos()
@@ -128,39 +131,37 @@ class GFXArray(parent: Transform? = null) : GFXTransform(parent) {
     override fun drawChildrenAutomatically() = false
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<GFXArray>()
+        val c = inspected.filterIsInstance2(GFXArray::class)
         // todo create apply button?
         // todo we need to be able to insert properties...
         // todo replace? :D, # String Array
 
-        val child = getGroup("Per-Child Transform", "For the n-th child, it is applied (n-1) times.", "per-child")
+        val child = getGroup(NameDesc("Per-Child Transform", "For the n-th child, it is applied (n-1) times.", "obj.per-child"))
         child += vis(
             c, "Offset/Child", "Translation from one child to the next",
-            "array.offset", "array.offset", c.map { it.perChildTranslation }, style
+            "array.offset", c.map { it.perChildTranslation }, style
         )
         child += vis(
             c, "Rotation/Child", "Rotation from one child to the next",
-            "array.rotation", "array.rotation", c.map { it.perChildRotation }, style
+            "array.rotation", c.map { it.perChildRotation }, style
         )
         child += vis(
             c, "Scale/Child", "Scale factor from one child to the next",
-            "array.scale", "array.scale", c.map { it.perChildScale }, style
+            "array.scale", c.map { it.perChildScale }, style
         )
         child += vis(
             c, "Delay/Child", "Temporal delay from one child to the next",
-            "array.delay", "array.delay", c.map { it.perChildDelay }, style
+            "array.delay", c.map { it.perChildDelay }, style
         )
 
-        val instances = getGroup("Instances", "", "children")
+        val instances = getGroup(NameDesc("Instances", "", "obj.children"))
         instances += vis(
             c, "Instance Count", "",
-            "array.instanceCount", "array.instanceCount", c.map { it.instanceCount }, style
+            "array.instanceCount", c.map { it.instanceCount }, style
         )
         instances += vi(
             c, "Selection Mode", "",

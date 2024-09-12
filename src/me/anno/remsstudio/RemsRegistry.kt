@@ -1,8 +1,8 @@
 package me.anno.remsstudio
 
 import me.anno.engine.ECSRegistry
-import me.anno.io.Saveable.Companion.registerCustomClass
-import me.anno.io.SaveableArray
+import me.anno.io.saveable.Saveable.Companion.registerCustomClass
+import me.anno.io.saveable.SaveableArray
 import me.anno.io.utils.StringMap
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.animation.Keyframe
@@ -32,6 +32,7 @@ import me.anno.remsstudio.objects.particles.distributions.*
 import me.anno.remsstudio.objects.text.Chapter
 import me.anno.remsstudio.objects.text.Text
 import me.anno.remsstudio.objects.text.Timer
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.ui.scene.SceneTabData
 
 object RemsRegistry {
@@ -40,8 +41,7 @@ object RemsRegistry {
 
         registerCustomClass(StringMap())
 
-        ECSRegistry.initPrefabs()
-        ECSRegistry.initMeshes()
+        ECSRegistry.init()
 
         registerCustomClass(SaveableArray())
         registerCustomClass(Transform())

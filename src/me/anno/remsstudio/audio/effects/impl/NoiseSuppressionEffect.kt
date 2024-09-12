@@ -2,7 +2,9 @@ package me.anno.remsstudio.audio.effects.impl
 
 import me.anno.audio.streams.AudioStreamRaw.Companion.bufferSize
 import me.anno.engine.Events.addEvent
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.maths.Maths.min
 import me.anno.maths.Maths.mix
@@ -10,8 +12,8 @@ import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.audio.effects.Domain
 import me.anno.remsstudio.audio.effects.SoundEffect
 import me.anno.remsstudio.audio.effects.Time
-import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
+import me.anno.remsstudio.objects.video.Video
 import me.anno.ui.Style
 import me.anno.ui.base.buttons.TextButton
 import me.anno.ui.base.groups.PanelListY
@@ -31,14 +33,14 @@ class NoiseSuppressionEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAI
 
     val noiseLevel = AnimatedProperty.floatPlus(0f) // maybe should be in dB...
 
-    override fun getStateAsImmutableKey(source: Audio, destination: Camera, time0: Time, time1: Time): Any {
+    override fun getStateAsImmutableKey(source: Video, destination: Camera, time0: Time, time1: Time): Any {
         return noiseLevel.toString()
     }
 
     override fun apply(
         getDataSrc: (Int) -> FloatArray,
         dataDst: FloatArray, // is this stereo?
-        source: Audio,
+        source: Video,
         destination: Camera,
         time0: Time,
         time1: Time
@@ -86,13 +88,15 @@ class NoiseSuppressionEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAI
     }
 
     override fun createInspector(
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
-        val nlp = audio.vi("Noise Level", "All audio below this relative level will be silenced", noiseLevel, style)
+        val nlp = audio.vi(
+            "Noise Level", "All audio below this relative level will be silenced", "audio.noiseLevel",
+            noiseLevel, style
+        )
         list += nlp
-        list += TextButton("Detect Noise Level", false, style)
+        list += TextButton(NameDesc("Detect Noise Level"), false, style)
             .apply {
                 tooltip = "Scans the first 10 seconds of audio for the lowest volume"
                 addLeftClickListener {

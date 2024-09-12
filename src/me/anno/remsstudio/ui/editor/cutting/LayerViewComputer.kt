@@ -3,7 +3,7 @@ package me.anno.remsstudio.ui.editor.cutting
 import me.anno.engine.Events.addEvent
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.objects.Transform
-import me.anno.remsstudio.objects.Video
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.ui.editor.TimelinePanel
 import me.anno.utils.Color.white4
 import org.joml.Vector4f
@@ -34,7 +34,7 @@ class LayerViewComputer(private val view: LayerView) {
         }
 
         val timelineSlot = view.timelineSlot
-        val drawn = transforms.filter { it.timelineSlot.value == timelineSlot }.reversed()
+        val drawn = transforms.filter { it.timelineSlot.value == timelineSlot }
         view.drawn = drawn
 
         if (drawn.isNotEmpty()) {
@@ -62,7 +62,9 @@ class LayerViewComputer(private val view: LayerView) {
 
             val drawnIndices = IntArray(drawn.size)
             var k = 0
-            for (entry in drawn) drawnIndices[k++] = transformMap[entry]!!
+            for (entry in drawn) {
+                drawnIndices[k++] = transformMap[entry]!!
+            }
 
             for (x in x0 until x1 step stepSize) {
 

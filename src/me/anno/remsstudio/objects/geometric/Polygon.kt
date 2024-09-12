@@ -8,11 +8,11 @@ import me.anno.gpu.GFX
 import me.anno.gpu.texture.Clamping
 import me.anno.gpu.texture.TextureCache
 import me.anno.gpu.texture.TextureLib.whiteTexture
-import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
 import me.anno.language.translation.Dict
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.gpu.GFXx3Dv2.draw3DPolygon
@@ -23,16 +23,17 @@ import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.utils.files.LocalFile.toGlobalFile
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.types.Floats.toRadians
 import me.anno.video.MissingFrameException
 import org.joml.Matrix4fArrayList
 import org.joml.Vector3f
 import org.joml.Vector4f
-import java.net.URL
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+@Suppress("MemberVisibilityCanBePrivate")
 open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
 
     // todo round edges?
@@ -86,16 +87,13 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<Polygon>()
+        val c = inspected.filterIsInstance2(Polygon::class)
 
-
-        val geo = getGroup("Geometry", "", "geometry")
+        val geo = getGroup(NameDesc("Geometry", "", "obj.geometry"))
         geo += vis(
             c, "Vertex Count", "Quads, Triangles, all possible", "polygon.vertexCount", c.map { it.vertexCount },
             style
@@ -113,7 +111,7 @@ open class Polygon(parent: Transform? = null) : GFXTransform(parent) {
             inspected, "Extrude", "Makes it 3D", "polygon.extrusion", null, is3D, style
         ) { it, _ -> for (x in c) x.is3D = it }
 
-        val tex = getGroup("Pattern", "", "texture")
+        val tex = getGroup(NameDesc("Pattern", "", "obj.texture"))
         tex += vi(
             inspected, "Pattern Texture",
             "For patterns like gradients radially; use a mask layer for images with polygon shape", "polygon.pattern",

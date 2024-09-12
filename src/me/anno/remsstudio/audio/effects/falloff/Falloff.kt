@@ -1,13 +1,15 @@
 package me.anno.remsstudio.audio.effects.falloff
 
 import me.anno.audio.streams.AudioStreamRaw.Companion.bufferSize
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.mix
 import me.anno.remsstudio.Selection.selectedTransforms
 import me.anno.remsstudio.audio.effects.Domain
 import me.anno.remsstudio.audio.effects.SoundEffect
 import me.anno.remsstudio.audio.effects.Time
-import me.anno.remsstudio.objects.Audio
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.objects.Camera
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
@@ -15,19 +17,17 @@ import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.NumberType
 import org.joml.Vector3f
 
-abstract class Falloff : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
-
-    var halfDistance = 1f
+abstract class Falloff(var halfDistance: Float = 1f) : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
 
     abstract fun getAmplitude(relativeDistance: Float): Float
 
-    override fun getStateAsImmutableKey(source: Audio, destination: Camera, time0: Time, time1: Time): Any {
+    override fun getStateAsImmutableKey(source: Video, destination: Camera, time0: Time, time1: Time): Any {
         val amplitude0 = getAmplitude(source, destination, time0.globalTime)
         val amplitude1 = getAmplitude(source, destination, time1.globalTime)
         return Pair(amplitude0, amplitude1)
     }
 
-    fun getAmplitude(source: Audio, destination: Camera, globalTime: Double): Float {
+    fun getAmplitude(source: Video, destination: Camera, globalTime: Double): Float {
         val position = source.getGlobalTransformTime(globalTime).first.transformPosition(Vector3f())
         val camera = destination.getGlobalTransformTime(globalTime).first.transformPosition(Vector3f())
         val distance = camera.distance(position)
@@ -37,7 +37,7 @@ abstract class Falloff : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
     override fun apply(
         getDataSrc: (Int) -> FloatArray,
         dataDst: FloatArray,
-        source: Audio,
+        source: Video,
         destination: Camera,
         time0: Time,
         time1: Time
@@ -64,16 +64,14 @@ abstract class Falloff : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
     }
 
     override fun createInspector(
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         list.add(audio.vi(
             selectedTransforms, "Half Distance",
             "Distance, where the amplitude is 50%",
-            NumberType.FLOAT_PLUS_EXP,
-            halfDistance,
-            style
+            "falloff.halfDistance",
+            NumberType.FLOAT_PLUS_EXP, halfDistance, style
         ) { it, _ -> halfDistance = it })
     }
 

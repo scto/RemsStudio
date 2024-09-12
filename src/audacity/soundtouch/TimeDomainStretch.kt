@@ -10,13 +10,8 @@ import kotlin.math.sqrt
  * stretches auto while keeping the pitch
  * src: https://github.com/audacity/audacity/blob/cce2c7b8830a7bb651d225863b792d23f336323f/lib-src/soundtouch/source/SoundTouch/TDStretch.cpp
  * */
+@Suppress("MemberVisibilityCanBePrivate")
 class TimeDomainStretch {
-
-    /*****************************************************************************
-     *
-     * Constant definitions
-     *
-     *****************************************************************************/
 
     companion object {
 
@@ -115,37 +110,26 @@ class TimeDomainStretch {
     var overlapLength = 0
     var seekLength = 0
     var seekWindowLength = 0
-    // var overlapDividerBits = 0
-    // var slopingDivider = 0
+
     var nominalSkip = 0f
     var skipFract = 0f
 
     val outputBuffer = SampleBuffer()
     val inputBuffer = SampleBuffer()
 
-    var bQuickSeek = false
+    var quickSeekEnabled = false
     var sampleRate = 48000
     var sequenceMs = 0
     var seekWindowMs = 0
     var overlapMs = 0
-    var bAutoSeekSetting = true
-    var bAutoSeqSetting = true
+    var autoSeekSetting = true
+    var autoSeqSetting = true
 
     init {
         setParameters(48000, DEFAULT_SEQUENCE_MS, DEFAULT_SEEKWINDOW_MS, DEFAULT_OVERLAP_MS)
         setTempo(tempo)
         clear()
     }
-
-    /**
-     * return nominal input sample requirement for triggering a processing batch
-     * */
-    fun getInputSampleReq() = (nominalSkip + 0.5f).toInt()
-
-    /**
-     * return nominal output sample amount when running a processing batch
-     * */
-    fun getOutputBatchSize() = seekWindowLength - overlapLength
 
     // Sets routine control parameters. These control are certain time constants
     // defining how the sound is stretched to the desired duration.
@@ -163,18 +147,18 @@ class TimeDomainStretch {
 
         if (aSequenceMS > 0) {
             this.sequenceMs = aSequenceMS
-            bAutoSeqSetting = false
+            autoSeqSetting = false
         } else if (aSequenceMS == 0) {
             // if zero, use automatic setting
-            bAutoSeqSetting = true
+            autoSeqSetting = true
         }
 
         if (aSeekWindowMS > 0) {
             this.seekWindowMs = aSeekWindowMS
-            bAutoSeekSetting = false
+            autoSeekSetting = false
         } else if (aSeekWindowMS == 0) {
             // if zero, use automatic setting
-            bAutoSeekSetting = true
+            autoSeekSetting = true
         }
 
         calcSeqParameters()
@@ -187,27 +171,25 @@ class TimeDomainStretch {
     }
 
     /**
-     * Overlaps samples in 'midBuffer' with the samples in 'pInput'
+     * Overlaps samples in 'midBuffer' with the samples in 'src'
      * */
-    fun overlapMono(pOutput: FloatPtr, pInput: FloatPtr) {
+    fun overlapMono(dst: FloatPtr, src: FloatPtr) {
+
+        val fScale = 1f / overlapLength
 
         var m1 = 0f
-        var m2 = overlapLength.toFloat()
+        var m2 = 1f
 
-        val pMidBuffer = pMidBuffer!!
+        val midBuffer = pMidBuffer!!
         for (i in 0 until overlapLength) {
-            pOutput[i] = (pInput[i] * m1 + pMidBuffer[i] * m2) / overlapLength
-            m1 += 1
-            m2 -= 1
+            dst[i] = src[i] * m1 + midBuffer[i] * m2
+            m1 += fScale
+            m2 -= fScale
         }
     }
 
     fun clearMidBuffer() {
-        // memset(pMidBuffer, 0, 2 * sizeof(float) * overlapLength)
-        val pMidBuffer = pMidBuffer!!
-        for (i in 0 until 2 * overlapLength) {
-            pMidBuffer[i] = 0f
-        }
+        pMidBuffer!!.fill(0f, 0, 2 * overlapLength)
     }
 
     fun clearInput() {
@@ -224,22 +206,10 @@ class TimeDomainStretch {
     }
 
     /**
-     * Enables/disables the quick position seeking algorithm. Zero to disable, nonzero to enable
-     * */
-    fun enableQuickSeek(enable: Boolean) {
-        bQuickSeek = enable
-    }
-
-    /**
-     * Returns nonzero if the quick seeking algorithm is enabled.
-     * */
-    fun isQuickSeekEnabled() = bQuickSeek
-
-    /**
      * Seeks for the optimal overlap-mixing position.
      * */
     fun seekBestOverlapPosition(refPos: FloatPtr): Int {
-        return if (bQuickSeek) {
+        return if (quickSeekEnabled) {
             seekBestOverlapPositionQuick(refPos)
         } else {
             seekBestOverlapPositionFull(refPos)
@@ -249,13 +219,13 @@ class TimeDomainStretch {
     /**
      * Overlaps samples in 'midBuffer' with the samples in 'pInputBuffer' at position of 'ovlPos'.
      * */
-    fun overlap(pOutput: FloatPtr, pInput: FloatPtr, ovlPos: Int) {
+    fun overlap(dst: FloatPtr, src: FloatPtr, ovlPos: Int) {
         if (channels == 2) {
             // stereo sound
-            overlapStereo(pOutput, pInput + 2 * ovlPos)
+            overlapStereo(dst, src + 2 * ovlPos)
         } else {
             // mono sound.
-            overlapMono(pOutput, pInput + ovlPos)
+            overlapMono(dst, src + ovlPos)
         }
     }
 
@@ -279,8 +249,7 @@ class TimeDomainStretch {
         // over the permitted range.
         for (i in 0 until seekLength) {
 
-            // Calculates correlation value for the mixing position corresponding
-            // to 'i'
+            // Calculates correlation value for the mixing position corresponding to 'i'
             corr = calcCrossCorr(refPos + channels * i, pMidBuffer!!)
             // heuristic rule to slightly favour values close to mid of the range
             val tmp = (2 * i - seekLength) / seekLength.toDouble()
@@ -316,7 +285,7 @@ class TimeDomainStretch {
         // Scans for the best correlation value using four-pass hierarchical search.
         //
         // The look-up table 'scans' has hierarchical position adjusting steps.
-        // In first pass the routine searhes for the highest correlation with
+        // In first pass the routine searches for the highest correlation with
         // relatively coarse steps, then rescans the neighbourhood of the highest
         // correlation with better resolution and so on.
 
@@ -358,43 +327,40 @@ class TimeDomainStretch {
         // default implementation is empty.
     }
 
-
     /**
      * Calculates processing sequence length according to tempo setting
      * */
     private fun calcSeqParameters() {
 
-        // Adjust tempo param according to tempo, so that variating processing sequence length is used
-        // at varius tempo settings, between the given low...top limits
-        val AUTOSEQ_TEMPO_LOW = 0.5     // auto setting low tempo range (-50%)
-        val AUTOSEQ_TEMPO_TOP = 2.0     // auto setting top tempo range (+100%)
+        // Adjust tempo param according to tempo, so that varying processing sequence length is used
+        // at various tempo settings, between the given low...top limits
+        val tempoLow = 0.5     // auto setting low tempo range (-50%)
+        val tempoHigh = 2.0     // auto setting top tempo range (+100%)
 
         // sequence-ms setting values at above low & top tempo
-        val AUTOSEQ_AT_MIN = 125.0
-        val AUTOSEQ_AT_MAX = 50.0
-        val AUTOSEQ_K = ((AUTOSEQ_AT_MAX - AUTOSEQ_AT_MIN) / (AUTOSEQ_TEMPO_TOP - AUTOSEQ_TEMPO_LOW))
-        val AUTOSEQ_C = (AUTOSEQ_AT_MIN - (AUTOSEQ_K) * (AUTOSEQ_TEMPO_LOW))
+        val seqAtMin = 125.0
+        val seqAtMax = 50.0
+        val seqLinear = ((seqAtMax - seqAtMin) / (tempoHigh - tempoLow))
+        val seqConst = (seqAtMin - (seqLinear) * (tempoLow))
 
         // seek-window-ms setting values at above low & top tempo
-        val AUTOSEEK_AT_MIN = 25.0
-        val AUTOSEEK_AT_MAX = 15.0
-        val AUTOSEEK_K = ((AUTOSEEK_AT_MAX - AUTOSEEK_AT_MIN) / (AUTOSEQ_TEMPO_TOP - AUTOSEQ_TEMPO_LOW))
-        val AUTOSEEK_C = (AUTOSEEK_AT_MIN - (AUTOSEEK_K) * (AUTOSEQ_TEMPO_LOW))
-
-        // val CHECK_LIMITS (x, mi, ma) (((x) < (mi)) ? (mi) : (((x) > (ma)) ? (ma) : (x)))
+        val seekAtMin = 25.0
+        val seekAtMax = 15.0
+        val seekLinear = ((seekAtMax - seekAtMin) / (tempoHigh - tempoLow))
+        val seekConst = (seekAtMin - (seekLinear) * (tempoLow))
 
         var seq: Double
         var seek: Double
 
-        if (bAutoSeqSetting) {
-            seq = AUTOSEQ_C + AUTOSEQ_K * tempo
-            seq = clamp(seq, AUTOSEQ_AT_MAX, AUTOSEQ_AT_MIN)
+        if (autoSeqSetting) {
+            seq = seqConst + seqLinear * tempo
+            seq = clamp(seq, seqAtMax, seqAtMin)
             sequenceMs = (seq + 0.5).toInt()
         }
 
-        if (bAutoSeekSetting) {
-            seek = AUTOSEEK_C + AUTOSEEK_K * tempo
-            seek = clamp(seek, AUTOSEEK_AT_MAX, AUTOSEEK_AT_MIN)
+        if (autoSeekSetting) {
+            seek = seekConst + seekLinear * tempo
+            seek = clamp(seek, seekAtMax, seekAtMin)
             seekWindowMs = (seek + 0.5).toInt()
         }
 
@@ -430,7 +396,6 @@ class TimeDomainStretch {
      * */
     fun setChannels(numChannels: Int) {
 
-        assert(numChannels > 0)
         if (channels == numChannels) return
         assert(numChannels == 1 || numChannels == 2)
 
@@ -444,9 +409,7 @@ class TimeDomainStretch {
      * Processes as many processing frames of the samples 'inputBuffer', store the result into 'outputBuffer'
      * */
     fun processSamples() {
-
-        // Process samples as long as there are enough samples in 'inputBuffer'
-        // to form a processing frame.
+        // Process samples as long as there are enough samples in 'inputBuffer' to form a processing frame.
         while (inputBuffer.numSamples() >= sampleReq) {
 
             // If tempo differs from the normal ('SCALE'), scan for the best overlapping position
@@ -484,39 +447,21 @@ class TimeDomainStretch {
 
             // Remove the processed samples from the input buffer. Update
             // the difference between integer & nominal skip step to 'skipFract'
-            // in order to prevent the error from accumulating over time.
-            skipFract += nominalSkip    // real skip size
+            // to prevent the error from accumulating over time.
+            skipFract += nominalSkip // real skip size
             val ovlSkip = skipFract.toInt() // rounded to integer skip
-            skipFract -= ovlSkip        // maintain the fraction part, i.e. real vs. integer skip
+            skipFract -= ovlSkip // maintain the fraction part, i.e., real vs. integer skip
             inputBuffer.receiveSamples(ovlSkip)
         }
     }
 
-    /**
-     * transformed from C to Kotlin
-     * */
     private fun memcpyFloats(dst: FloatArray, src: FloatPtr, length: Int) {
-        for (i in 0 until length) {
-            dst[i] = src[i]
-        }
+        src.array.values.copyInto(dst, 0, src.offset, src.offset + length)
     }
 
-    /**
-     * Adds 'numsamples' pcs of samples from the 'samples' memory position into the input of the object.
-     * */
-    fun putSamples(samples: FloatArray){
+    fun putSamples(samples: FloatArray) {
         // Add the samples into the input buffer
         inputBuffer.putSamples(samples)
-        // Process the samples in input buffer
-        processSamples()
-    }
-
-    /**
-     * Adds 'numsamples' pcs of samples from the 'samples' memory position into the input of the object.
-     * */
-    fun putSamples(samples: FloatPtr, nSamples: Int) {
-        // Add the samples into the input buffer
-        inputBuffer.putSamples(samples, nSamples)
         // Process the samples in input buffer
         processSamples()
     }
@@ -541,17 +486,17 @@ class TimeDomainStretch {
     /**
      * Overlaps samples in 'midBuffer' with the samples in 'pInput'
      * */
-    private fun overlapStereo(pOutput: FloatPtr, pInput: FloatPtr) {
+    private fun overlapStereo(dst: FloatPtr, src: FloatPtr) {
 
-        val fScale = 1.0f / overlapLength
+        val fScale = 1f / overlapLength
 
         var f1 = 0f
         var f2 = 1f
 
-        val pMidBuffer = pMidBuffer!!
+        val midBuffer = pMidBuffer!!
         for (i in 0 until 2 * overlapLength step 2) {
-            pOutput[i + 0] = pInput[i + 0] * f1 + pMidBuffer[i + 0] * f2
-            pOutput[i + 1] = pInput[i + 1] * f1 + pMidBuffer[i + 1] * f2
+            dst[i + 0] = src[i + 0] * f1 + midBuffer[i + 0] * f2
+            dst[i + 1] = src[i + 1] * f1 + midBuffer[i + 1] * f2
 
             f1 += fScale
             f2 -= fScale
@@ -559,12 +504,12 @@ class TimeDomainStretch {
     }
 
     /**
-     * Calculates overlapInMsec period length in samples.
+     * Calculates overlapInMilliseconds period length in samples.
      * */
-    private fun calculateOverlapLength(overlapInMsec: Int) {
+    private fun calculateOverlapLength(overlapInMilliseconds: Int) {
 
-        assert(overlapInMsec >= 0)
-        var newOvl = (sampleRate * overlapInMsec) / 1000
+        assert(overlapInMilliseconds >= 0)
+        var newOvl = (sampleRate * overlapInMilliseconds) / 1000
         if (newOvl < 16) newOvl = 16
 
         // must be divisible by 8
@@ -579,22 +524,16 @@ class TimeDomainStretch {
         var norm = 0.0
 
         // Same routine for stereo and mono. For Stereo, unroll by factor of 2.
-        // For mono it's same routine yet unrollsd by factor of 4.
+        // For mono it's same routine yet unrolled by factor of 4.
         for (i in 0 until channels * overlapLength step 4) {
-
             corr += mixingPos[i] * compare[i] + mixingPos[i + 1] * compare[i + 1]
             norm += mixingPos[i] * mixingPos[i] + mixingPos[i + 1] * mixingPos[i + 1]
 
             // unroll the loop for better CPU efficiency:
             corr += mixingPos[i + 2] * compare[i + 2] + mixingPos[i + 3] * compare[i + 3]
             norm += mixingPos[i + 2] * mixingPos[i + 2] + mixingPos[i + 3] * mixingPos[i + 3]
-
         }
-
-        if (norm < 1e-9) norm = 1.0    // to avoid div by zero
-        return corr / sqrt(norm)
-
+        return corr / sqrt(max(norm, 1e-9))
     }
-
 
 }

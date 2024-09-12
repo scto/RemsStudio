@@ -2,6 +2,7 @@ package me.anno.remsstudio.animation.drivers
 
 import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.maths.noise.FullNoise
 import me.anno.remsstudio.animation.AnimatedProperty
@@ -10,8 +11,11 @@ import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.input.NumberType
+import me.anno.utils.structures.Collections.filterIsInstance2
 import kotlin.math.min
 
+@Deprecated("Drivers are too technical")
+@Suppress("MemberVisibilityCanBePrivate")
 class PerlinNoiseDriver : AnimationDriver() {
 
     var falloff = AnimatedProperty.float01(0.5f)
@@ -42,24 +46,29 @@ class PerlinNoiseDriver : AnimationDriver() {
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        transforms: List<Transform>,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, transforms: List<Transform>, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, transforms, style, getGroup)
         val transform = transforms.first()
-        val c = inspected.filterIsInstance<PerlinNoiseDriver>()
+        val c = inspected.filterIsInstance2(PerlinNoiseDriver::class)
         list += transform.vi(
-            inspected, "Octaves", "Levels of Detail", NumberType.INT_PLUS, octaves, style
+            inspected, "Octaves",
+            "Levels of Detail",
+            "perlinNoise.octaves",
+            NumberType.INT_PLUS, octaves, style
         ) { it, _ -> for (x in c) x.octaves = it }
         list += transform.vi(
-            inspected, "Seed", "Base value for randomness", NumberType.LONG, seed, style
+            inspected, "Seed",
+            "Base value for randomness",
+            "perlinNoise.seed",
+            NumberType.LONG, seed, style
         ) { it, _ -> for (x in c) x.seed = it }
         list += transform.vis(
-            c.map { transform }, "Falloff", "Changes high-frequency weight", c.map { it.falloff },
-            style
+            c.map { transform }, "Falloff",
+            "Changes high-frequency weight",
+            "perlinNoise.falloff",
+            c.map { it.falloff }, style
         )
     }
 

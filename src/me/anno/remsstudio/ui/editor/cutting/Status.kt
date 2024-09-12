@@ -3,13 +3,14 @@ package me.anno.remsstudio.ui.editor.cutting
 import me.anno.gpu.drawing.DrawRectangles
 import me.anno.io.MediaMetadata
 import me.anno.io.files.FileReference
-import me.anno.remsstudio.objects.Video
+import me.anno.remsstudio.objects.video.Video
 import me.anno.utils.Color.black
 import me.anno.video.VideoCache
 import me.anno.video.VideoFramesKey
 import me.anno.video.VideoSlice
 import me.anno.video.formats.gpu.BlankFrameDetector
 
+@Suppress("MemberVisibilityCanBePrivate")
 enum class Status(val color: Int) {
     FULL_SCALE_READY(0x24ff2c or black),
     READY(0xbbe961 or black),

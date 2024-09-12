@@ -1,5 +1,6 @@
 package me.anno.remsstudio.objects
 
+import me.anno.cache.ICacheData
 import me.anno.config.DefaultConfig
 import me.anno.engine.EngineBase.Companion.workspace
 import me.anno.engine.inspector.Inspectable
@@ -8,13 +9,13 @@ import me.anno.gpu.GFXState
 import me.anno.gpu.blending.BlendMode
 import me.anno.gpu.drawing.GFXx3D
 import me.anno.gpu.shader.renderer.Renderer
-import me.anno.io.Saveable
 import me.anno.io.base.BaseWriter
 import me.anno.io.base.InvalidFormatException
 import me.anno.io.files.FileReference
 import me.anno.io.files.InvalidRef
 import me.anno.io.json.saveable.JsonStringReader
 import me.anno.io.json.saveable.JsonStringWriter
+import me.anno.io.saveable.Saveable
 import me.anno.language.translation.Dict
 import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
@@ -42,25 +43,28 @@ import me.anno.ui.input.NumberType
 import me.anno.ui.input.TextInput
 import me.anno.ui.input.TextInputML
 import me.anno.utils.Color.mulARGB
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.structures.Hierarchical
 import me.anno.utils.structures.ValueWithDefault
 import me.anno.utils.structures.ValueWithDefault.Companion.writeMaybe
 import me.anno.utils.structures.ValueWithDefaultFunc
+import me.anno.utils.types.AnyToBool
+import me.anno.utils.types.AnyToDouble
+import me.anno.utils.types.AnyToFloat
+import me.anno.utils.types.AnyToInt
+import me.anno.utils.types.Booleans.hasFlag
 import me.anno.utils.types.Casting.castToDouble
 import me.anno.utils.types.Casting.castToDouble2
 import me.anno.utils.types.Floats.toRadians
 import me.anno.utils.types.Strings.isBlank2
 import me.anno.video.MissingFrameException
 import org.apache.logging.log4j.LogManager
-import org.joml.Matrix4f
-import org.joml.Matrix4fArrayList
-import org.joml.Vector3f
-import org.joml.Vector4f
-import java.net.URL
+import org.joml.*
 import java.util.concurrent.atomic.AtomicInteger
 
+@Suppress("MemberVisibilityCanBePrivate")
 open class Transform() : Saveable(),
-    Inspectable, Hierarchical<Transform> {
+    Inspectable, Hierarchical<Transform>, ICacheData {
 
     // todo generally "play" the animation of a single transform for testing purposes?
     // todo maybe only for video or audio? for audio it would be simple :)
@@ -86,6 +90,7 @@ open class Transform() : Saveable(),
     val timelineSlot = ValueWithDefault(-1)
 
     var visibility = TransformVisibility.VISIBLE
+    var lockTransform = false
     override var isEnabled = true
 
     var position = AnimatedProperty.pos()
@@ -196,7 +201,7 @@ open class Transform() : Saveable(),
     }
 
     fun show(selves: List<Transform>, anim: List<AnimatedProperty<*>?>?) {
-        select(selves, anim)
+        select(selves, anim ?: emptyList())
     }
 
     private val tmp0 = Vector4f()
@@ -222,19 +227,17 @@ open class Transform() : Saveable(),
     open fun usesFadingDifferently() = false
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (nameDesc: NameDesc) -> SettingCategory
     ) {
 
-        val c = inspected.filterIsInstance<Transform>()
+        val c = inspected.filterIsInstance2(Transform::class)
 
-        list += TextInput("Name ($className)", "", name, style)
+        list += TextInput(NameDesc("Name ($className)"), "", name, style)
             .addChangeListener { for (x in c) name = it.ifEmpty { "-" } }
             .setIsSelectedListener { show(c, null) }
             .apply { alignmentX = AxisAlignment.FILL }
-        list += TextInputML("Comment", comment, style)
+        list += TextInputML(NameDesc("Comment"), comment, style)
             .addChangeListener { for (x in c) comment = it }
             .setIsSelectedListener { show(c, null) }
             .apply { alignmentX = AxisAlignment.FILL }
@@ -258,73 +261,103 @@ open class Transform() : Saveable(),
 
         // todo if tags are the same, show same tags,
         // todo else show sth like ---
-        list += TextInput("Tags", "", tags, style)
+        list += TextInput(NameDesc("Tags"), "", tags, style)
             .addChangeListener { for (x in c) x.tags = it }
             .setIsSelectedListener { show(c, null) }
             .setTooltip("For Search | Not implemented yet")
 
         // transforms
-        val transform = getGroup("Transform", "Translation Scale, Rotation, Skewing", "transform")
-        transform += vis(c, "Position", "Location of this object", c.map { it.position }, style)
-        transform += vis(c, "Scale", "Makes it bigger/smaller", c.map { it.scale }, style)
-        transform += vis(c, "Rotation", "Pitch,Yaw,Roll", c.map { it.rotationYXZ }, style)
-        transform += vis(c, "Skew", "Transform it similar to a shear", c.map { it.skew }, style)
+        val transform = getGroup(NameDesc("Transform", "Translation, Scale, Rotation, Skewing", "obj.transform"))
+        transform += vis(
+            c,
+            "Position",
+            "Location of this object",
+            "transform.position",
+            c.map { it.position },
+            style
+        )
+        transform += vis(c, "Scale", "Makes it bigger/smaller", "transform.scale", c.map { it.scale }, style)
+        transform += vis(c, "Rotation", "Pitch,Yaw,Roll", "transform.rotation", c.map { it.rotationYXZ }, style)
+        transform += vis(c, "Skew", "Transform it similar to a shear", "transform.skew", c.map { it.skew }, style)
         transform += vis(
             c,
             "Alignment with Camera",
             "0 = in 3D, 1 = looking towards the camera; billboards",
-            c.map { it.alignWithCamera },
-            style
+            "transform.alignWithCamera",
+            c.map { it.alignWithCamera }, style
         )
+        transform += vi(
+            c, "Lock Transform", "So you don't accidentally move them", "transform.lockTransform",
+            null, lockTransform, style
+        ) { value, _ ->
+            for (ci in c) ci.lockTransform = value
+        }
 
         // color
-        val colorGroup = getGroup("Color", "", "color")
-        colorGroup += vis(c, "Color", "Tint, applied to this & children", c.map { it.color }, style)
+        val colorGroup = getGroup(NameDesc("Color", "", "obj.color"))
+        colorGroup += vis(c, "Color", "Tint, applied to this & children", "color.tint", c.map { it.color }, style)
         colorGroup += vis(
-            c, "Color Multiplier", "To make things brighter than usually possible", c.map { it.colorMultiplier },
-            style
+            c, "Brightness Multiplier", "To make things brighter than usually possible", "color.multiplier",
+            c.map { it.colorMultiplier }, style
         )
 
         // kind of color...
         colorGroup += vi(
             inspected, "Blend Mode", "How this' element color is combined with what was rendered before that.",
+            "color.blendMode",
             null, blendMode, style
         ) { it, _ -> for (x in c) x.blendMode = it }
 
         // time
-        val timeGroup = getGroup("Time", "", "time")
+        val timeGroup = getGroup(NameDesc("Time", "", "obj.time"))
         timeGroup += vis(
-            inspected, "Start Time", "Delay the animation", null,
+            inspected, "Start Time", "Delay the animation", "time.startTime", null,
             c.map { it.timeOffset }, style
         )
         timeGroup += vis(
-            inspected, "Time Multiplier", "Speed up the animation",
+            inspected, "Time Multiplier", "Speed up the animation", "time.timeMultiplier",
             dilationType, c.map { it.timeDilation }, style
         )
         timeGroup += vis(
-            c, "Advanced Time", "Add acceleration/deceleration to your elements", c.map { it.timeAnimated },
-            style
+            c, "Advanced Time", "Add acceleration/deceleration to your elements", "time.advanced",
+            c.map { it.timeAnimated }, style
         )
 
         val ufd = usesFadingDifferently()
         if (ufd || getStartTime().isFinite()) {
-            timeGroup += vis(c, "Fade In", "Transparency at the start, in seconds", c.map { it.fadeIn }, style)
-            timeGroup += vis(c, "Fade Out", "Transparency at the end, in seconds", c.map { it.fadeOut }, style)
+            timeGroup += vis(
+                c,
+                "Fade In",
+                "Transparency at the start, in seconds",
+                "time.fadeIn",
+                c.map { it.fadeIn },
+                style
+            )
+            timeGroup += vis(
+                c,
+                "Fade Out",
+                "Transparency at the end, in seconds",
+                "time.fadeOut",
+                c.map { it.fadeOut },
+                style
+            )
         }
 
-        val editorGroup = getGroup("Editor", "", "editor")
+        val editorGroup = getGroup(NameDesc("Editor", "", "obj.editor"))
         editorGroup += vi(
-            inspected, "Timeline Slot", "< 1 means invisible", NumberType.INT_PLUS, timelineSlot.value, style
+            inspected, "Timeline Slot", "< 1 means invisible", "editor.timelineSlot",
+            NumberType.INT_PLUS, timelineSlot.value, style
         ) { it, _ -> for (x in c) x.timelineSlot.value = it }
         // todo warn of invisible elements somehow!...
         editorGroup += vi(
-            inspected, "Visibility", "", null, visibility, style
+            inspected, "Visibility", "Whether the object is visible when rendering and/or when editing",
+            "visibility", null, visibility, style
         ) { it, _ -> for (x in c) x.visibility = it }
 
         if (parent?.acceptsWeight() == true) {
-            val psGroup = getGroup("Particle System Child", "", "particles")
+            val psGroup = getGroup(NameDesc("Particle System Child", "", "obj.particles"))
             psGroup += vi(
-                inspected, "Weight", "For particle systems",
+                inspected, "Weight", "For particle systems", "particles.weight",
                 NumberType.FLOAT_PLUS, weight, style
             ) { it, _ ->
                 for (x in c) {
@@ -335,14 +368,6 @@ open class Transform() : Saveable(),
                 }
             }
         }
-    }
-
-    override fun createInspector(
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
-    ) {
-        createInspector(listOf(this), list, style, getGroup)
     }
 
     open fun getLocalTime(parentTime: Double): Double {
@@ -533,17 +558,19 @@ open class Transform() : Saveable(),
         writer.writeObjectList(this, "children", children)
         writer.writeMaybe(this, "timelineSlot", timelineSlot)
         writer.writeInt("visibility", visibility.id, false)
+        writer.writeBoolean("lockTransform", lockTransform)
     }
 
     override fun setProperty(name: String, value: Any?) {
         when (name) {
-            "collapsed" -> isCollapsed = value == true
-            "timelineSlot" -> timelineSlot.value = value as? Int ?: return
+            "collapsed" -> isCollapsed = AnyToBool.anyToBool(value)
+            "timelineSlot" -> timelineSlot.value = AnyToInt.getInt(value, 0)
             "visibility" -> visibility = TransformVisibility[value as? Int ?: return]
             "uuid" -> Unit// hide the warning
-            "weight" -> weight = value as? Float ?: return
-            "timeDilation" -> timeDilation.value = value as? Double ?: return
-            "timeOffset" -> timeOffset.value = value as? Double ?: return
+            "weight" -> weight = AnyToFloat.getFloat(value, 0f)
+            "timeDilation" -> timeDilation.value = AnyToDouble.getDouble(value, 1.0)
+            "timeOffset" -> timeOffset.value = AnyToDouble.getDouble(value, 0.0)
+            "lockTransform" -> lockTransform = AnyToBool.anyToBool(value)
             "fadeIn" -> {
                 if (value is Double && value >= 0.0) fadeIn.set(value.toFloat())
                 else fadeIn.copyFrom(value)
@@ -558,7 +585,7 @@ open class Transform() : Saveable(),
             "blendMode" -> blendMode = BlendMode[value as? String ?: ""]
             "children" -> {
                 when (value) {
-                    is Array<*> -> value.filterIsInstance<Transform>().forEach(::addChild)
+                    is List<*> -> value.filterIsInstance2(Transform::class).forEach(::addChild)
                     is Transform -> addChild(value)
                 }
             }
@@ -671,13 +698,6 @@ open class Transform() : Saveable(),
         )
     }
 
-    fun <V> vi(
-        inspected: List<Inspectable>,
-        title: String, ttt: String, dictPath: String, visibilityKey: String,
-        type: NumberType?, value: ValueWithDefault<V>,
-        style: Style
-    ) = vi(inspected, Dict[title, "obj.$dictPath"], Dict[ttt, "obj.$dictPath.desc"], visibilityKey, type, value, style)
-
     fun <V> vis(
         inspected: List<Inspectable>,
         title: String, ttt: String, dictPath: String, type: NumberType?, visibilityKey: String,
@@ -687,47 +707,40 @@ open class Transform() : Saveable(),
         visibilityKey, type, values, style
     )
 
-    fun <V> vi(
-        inspected: List<Inspectable>,
-        title: String, ttt: String, visibilityKey: String,
-        type: NumberType?, value: ValueWithDefault<V>,
-        style: Style
-    ): Panel {
-        return vi(inspected, title, ttt, visibilityKey, type, value.value, style) { newValue, mask ->
-            // todo respect mask
-            // todo assign to all???
-            value.value = newValue
+    fun <V> clone(that: V): Any? {
+        return when (that) {
+            is Vector2f -> Vector2f(that)
+            is Vector3f -> Vector3f(that)
+            is Vector4f -> Vector4f(that)
+            is Vector2d -> Vector2d(that)
+            is Vector3d -> Vector3d(that)
+            is Vector4d -> Vector4d(that)
+            else -> null
         }
     }
 
-    fun <V> vi(
-        inspected: List<Inspectable>,
-        title: String, ttt: String,
-        type: NumberType?, value: ValueWithDefault<V>,
-        style: Style
-    ): Panel {
-        return vi(inspected, title, ttt, title, type, value, style)
-    }
-
-    fun <V> vis(
-        inspected: List<Inspectable>,
-        title: String, ttt: String, visibilityKey: String, type: NumberType?,
-        values: List<ValueWithDefault<V>>, style: Style
-    ): Panel {
-        return vi(inspected, title, ttt, visibilityKey, type, values[0].value, style) { newValue, mask ->
-            // todo respect mask
-            for (x in values) {
-                x.value = newValue
+    fun <V> setViaMask(old: V, new: V, mask: Int): V {
+        if (mask == -1 || old !is Vector || new !is Vector) return new
+        val clone = clone(old) as? Vector ?: return new
+        for (i in 0 until old.numComponents) {
+            if (mask.hasFlag(1 shl i)) {
+                clone.setComp(i, new.getComp(i))
             }
         }
+        @Suppress("UNCHECKED_CAST")
+        return clone as V
     }
 
     fun <V> vis(
         inspected: List<Inspectable>,
-        title: String, ttt: String, type: NumberType?,
+        title: String, ttt: String, dictSubPath: String, type: NumberType?,
         values: List<ValueWithDefault<V>>, style: Style
     ): Panel {
-        return vis(inspected, title, ttt, title, type, values, style)
+        return vi(inspected, title, ttt, dictSubPath, type, values[0].value, style) { newValue, mask ->
+            for (x in values) {
+                x.value = setViaMask(x.value, newValue, mask)
+            }
+        }
     }
 
     /**
@@ -737,48 +750,16 @@ open class Transform() : Saveable(),
      * */
     fun <V> vi(
         inspected: List<Inspectable>,
-        title: String, ttt: String, visibilityKey: String,
+        title: String, ttt: String, dictSubPath: String,
         type: NumberType?, value: V,
         style: Style, setValue: (value: V, mask: Int) -> Unit
     ): Panel {
-        return ComponentUIV2.vi(inspected, this, title, ttt, visibilityKey, type, value, style, setValue)
-    }
-
-    fun <V> vi(
-        inspected: List<Inspectable>,
-        title: String, ttt: String,
-        type: NumberType?, value: V,
-        style: Style, setValue: (value: V, mask: Int) -> Unit
-    ): Panel {
-        return ComponentUIV2.vi(inspected, this, title, ttt, title, type, value, style, setValue)
-    }
-
-    fun vis(
-        selves: List<Transform>,
-        title: String,
-        ttt: String,
-        dictSubPath: String,
-        visibilityKey: String,
-        values: List<AnimatedProperty<*>>,
-        style: Style
-    ): Panel {
-        return vis(
-            selves,
+        return ComponentUIV2.vi(
+            inspected, this,
             Dict[title, "obj.$dictSubPath"],
             Dict[ttt, "obj.$dictSubPath.desc"],
-            visibilityKey,
-            values,
-            style
+            dictSubPath, type, value, style, setValue
         )
-    }
-
-    fun vis(
-        selves: List<Transform>,
-        title: String, ttt: String,
-        values: List<AnimatedProperty<*>>,
-        style: Style
-    ): Panel {
-        return vis(selves, title, ttt, title, values, style)
     }
 
     /**
@@ -787,35 +768,33 @@ open class Transform() : Saveable(),
      * modifies the AnimatedProperty-Object, so no callback is needed
      * */
     fun vi(
-        title: String,
-        ttt: String,
-        visibilityKey: String,
+        title: String, ttt: String, dictSubPath: String,
         values: AnimatedProperty<*>,
         style: Style
     ): IsAnimatedWrapper {
-        return ComponentUIV2.vi(this, title, ttt, visibilityKey, values, style)
-    }
-
-    fun vi(title: String, ttt: String, values: AnimatedProperty<*>, style: Style): IsAnimatedWrapper {
-        return ComponentUIV2.vi(this, title, ttt, title, values, style)
+        return ComponentUIV2.vi(
+            this,
+            Dict[title, "obj.$dictSubPath"],
+            Dict[ttt, "obj.$dictSubPath.desc"],
+            dictSubPath, values, style
+        )
     }
 
     fun vis(
         selves: List<Transform>,
-        title: String,
-        ttt: String,
-        visibilityKey: String,
-        values: List<AnimatedProperty<*>>,
-        style: Style
+        title: String, ttt: String, dictSubPath: String,
+        values: List<AnimatedProperty<*>>, style: Style
     ): Panel {
-        return ComponentUIV2.vis(selves, title, ttt, visibilityKey, values, style)
+        return ComponentUIV2.vis(
+            selves,
+            Dict[title, "obj.$dictSubPath"],
+            Dict[ttt, "obj.$dictSubPath.desc"],
+            dictSubPath, values, style
+        )
     }
-
-    override fun onDestroy() {}
 
     override fun destroy() {
         removeFromParent()
-        onDestroy()
     }
 
     /**
@@ -917,7 +896,7 @@ open class Transform() : Saveable(),
         val nextClickId = AtomicInteger()
 
         fun String.toTransform() = try {
-            JsonStringReader.readFirstOrNull<Transform>(this, workspace, true)
+            JsonStringReader.readFirstOrNull(this, workspace, Transform::class)
         } catch (e: InvalidFormatException) {
             null
         }

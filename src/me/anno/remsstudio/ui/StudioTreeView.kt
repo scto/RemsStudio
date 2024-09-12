@@ -16,6 +16,7 @@ import me.anno.remsstudio.Selection
 import me.anno.remsstudio.objects.*
 import me.anno.remsstudio.objects.Transform.Companion.toTransform
 import me.anno.remsstudio.objects.effects.MaskLayer
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.ui.MenuUtils.drawTypeInCorner
 import me.anno.ui.Style
 import me.anno.ui.base.menu.Menu
@@ -32,7 +33,7 @@ import java.util.*
 class StudioTreeView(style: Style) :
     TreeView<Transform>(StudioFileImporter, true, style) {
 
-    override fun listSources(): List<Transform> {
+    override fun listRoots(): List<Transform> {
         val nc = nullCamera
         return if (nc == null) listOf(RemsStudio.root)
         else listOf(nc, RemsStudio.root)
@@ -66,7 +67,7 @@ class StudioTreeView(style: Style) :
     }
 
     override fun destroy(element: Transform) {
-        element.onDestroy()
+        element.destroy()
         invalidateLayout()
     }
 
@@ -88,7 +89,7 @@ class StudioTreeView(style: Style) :
     override fun selectElementsMaybe(elements: List<Transform>) {
         // if already selected, don't inspect that property/driver
         if (Selection.selectedTransforms == elements &&
-            (Selection.selectedProperties != null ||
+            (Selection.selectedProperties.isNotEmpty() ||
                     (Selection.selectedInspectables.isNotEmpty() && Selection.selectedInspectables != elements))
         ) {
             Selection.clear()
@@ -97,8 +98,8 @@ class StudioTreeView(style: Style) :
         }
     }
 
-    override fun focusOnElement(element: Transform) {
-        zoomToObject(element)
+    override fun focusOnElement(element: Transform): Boolean {
+        return zoomToObject(element)
     }
 
     override fun openAddMenu(parent: Transform) {
@@ -146,11 +147,11 @@ class StudioTreeView(style: Style) :
 
     companion object {
 
-        fun zoomToObject(obj: Transform) {
+        fun zoomToObject(obj: Transform): Boolean {
             // instead of asking for the name, move the camera towards the target
             // todo also zoom in/out correctly to match the object...
             // identify the currently used camera
-            val camera = lastTouchedCamera ?: nullCamera ?: return
+            val camera = lastTouchedCamera ?: nullCamera ?: return false
             val time = RemsStudio.editorTime
             // calculate the movement, which would be necessary
             val cameraToWorld = camera.parent?.getGlobalTransform(time)
@@ -165,6 +166,7 @@ class StudioTreeView(style: Style) :
             RemsStudio.largeChange("Move Camera to Object") {
                 camera.position.addKeyframe(camera.lastLocalTime, objectCameraPosition)
             }
+            return true
         }
 
         private val LOGGER = LogManager.getLogger(StudioTreeView::class)
@@ -191,8 +193,8 @@ class StudioTreeView(style: Style) :
                     }
                 }
                 val additional = baseTransform.getAdditionalChildrenOptions().map { option ->
-                    MenuOption(NameDesc(option.title, option.description, "")) {
-                        RemsStudio.largeChange("Added ${option.title}") {
+                    MenuOption(option.nameDesc) {
+                        RemsStudio.largeChange("Added ${option.nameDesc.name}") {
                             val new = option.generator() as Transform
                             baseTransform.addChild(new)
                             Selection.selectTransform(new)

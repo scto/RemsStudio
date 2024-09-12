@@ -11,6 +11,7 @@ import me.anno.ui.base.menu.MenuOption
 import me.anno.ui.base.text.UpdatingTextPanel
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.Style
+import me.anno.utils.structures.Collections.filterIsInstance2
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -47,7 +48,7 @@ class Chapter(parent: Transform?) : GFXTransform(parent) {
     }
 
     fun createChapterSummary(): List<String> {
-        val chapters = root.listOfAll.filterIsInstance<Chapter>().map { it.name to it.getChapterTime() }
+        val chapters = root.listOfAll.filterIsInstance2(Chapter::class).map { it.name to it.getChapterTime() }
         val sortedChapters = chapters.sortedBy { it.second }
         // first chapter must start at zero
         // (YouTube's guidelines)
@@ -71,10 +72,8 @@ class Chapter(parent: Transform?) : GFXTransform(parent) {
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
         list += UpdatingTextPanel(500, style) { "Start time: ${createTimestamp(getChapterTime().roundToInt())}" }

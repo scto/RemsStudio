@@ -1,15 +1,14 @@
 package me.anno.remsstudio.objects.text
 
-import me.anno.fonts.AWTFont
 import me.anno.fonts.FontManager
 import me.anno.fonts.PartResult
 import me.anno.fonts.mesh.TextMesh
 import me.anno.fonts.signeddistfields.algorithm.SignedDistanceField
 import me.anno.gpu.GFX
-import me.anno.gpu.drawing.GFXx3D
+import me.anno.gpu.texture.Texture2D
+import me.anno.jvm.fonts.AWTFont
 import me.anno.remsstudio.Selection
 import me.anno.remsstudio.gpu.GFXx3Dv2
-import me.anno.remsstudio.objects.TextSegmentKey
 import me.anno.remsstudio.objects.attractors.EffectMorphing
 import me.anno.remsstudio.objects.modes.TextRenderMode
 import me.anno.remsstudio.objects.text.Text.Companion.DEFAULT_FONT_HEIGHT
@@ -25,6 +24,7 @@ import java.awt.font.TextLayout
 import kotlin.math.max
 import kotlin.math.min
 
+@Suppress("MemberVisibilityCanBePrivate")
 object TextRenderer {
 
     fun draw(
@@ -267,7 +267,7 @@ object TextRenderer {
         sdf2.draw(startIndex, endIndex) { _, sdf, xOffset ->
 
             val texture = sdf?.texture
-            if (texture != null && texture.isCreated()) {
+            if (texture is Texture2D && texture.isCreated()) {
 
                 val baseScale =
                     TextMesh.DEFAULT_LINE_HEIGHT / sdfResolution / (exampleLayout.ascent + exampleLayout.descent)

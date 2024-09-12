@@ -27,6 +27,7 @@ import kotlin.math.min
  *  - and then cut or synchronize (speed-change) the points :3
  * https://www.youtube.com/watch?v=sff_2WMOLrs&t=1212s
  * */
+@Suppress("MemberVisibilityCanBePrivate")
 class PatternRecorderCore(val tp: TextInput) : Panel(style) {
 
     val times = ArrayList<Double>()
@@ -71,7 +72,12 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
     private fun callAction() {
         openMenu(
             windowStack, NameDesc("Recording"), listOf(
-                MenuOption("Record", "Deletes all samples, and re-records; press any key when the time is right") {
+                MenuOption(
+                    NameDesc(
+                        "Record", "Deletes all samples, and re-records; press any key when the time is right",
+                        "ui.patternRecorder.start"
+                    )
+                ) {
                     times.clear()
                     onTimesChange()
                     ensurePlaying()
@@ -79,7 +85,12 @@ class PatternRecorderCore(val tp: TextInput) : Panel(style) {
                     invalidateDrawing()
                     requestFocus()
                 },
-                MenuOption("Stop Recording", "You can press ESC as well") {
+                MenuOption(
+                    NameDesc(
+                        "Stop Recording", "You can press ESC as well",
+                        "ui.patternRecorder.stop"
+                    )
+                ) {
                     isRecording = false
                     invalidateDrawing()
                     RemsStudio.editorTimeDilation = 0.0 // pause :)

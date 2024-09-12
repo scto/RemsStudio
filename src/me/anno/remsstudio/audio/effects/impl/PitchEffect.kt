@@ -2,13 +2,15 @@ package me.anno.remsstudio.audio.effects.impl
 
 import audacity.soundtouch.TimeDomainStretch
 import me.anno.audio.streams.AudioStreamRaw.Companion.bufferSize
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.clamp
 import me.anno.remsstudio.audio.effects.Domain
 import me.anno.remsstudio.audio.effects.SoundEffect
 import me.anno.remsstudio.audio.effects.Time
-import me.anno.remsstudio.objects.Audio
 import me.anno.remsstudio.objects.Camera
+import me.anno.remsstudio.objects.video.Video
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
@@ -16,6 +18,7 @@ import me.anno.ui.input.NumberType
 import me.anno.utils.types.Casting.castToFloat2
 import kotlin.math.abs
 
+@Suppress("MemberVisibilityCanBePrivate")
 class PitchEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
 
     companion object {
@@ -28,20 +31,21 @@ class PitchEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
     }
 
     override fun createInspector(
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected0: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
-        // todo effect broken, dragging not working?
+        // todo bug: effect broken, dragging not working?
         val inspected = listOf(audio)
         list += audio.vi(
             inspected,
             "Inverse Speed", "Making something play faster, increases the pitch; this is undone by this node",
+            "pitch.inverseSpeed",
             null, inverseSpeed, style
         ) { it, _ -> inverseSpeed = it }
         list += audio.vi(
             inspected,
             "Value", "Pitch height, if Inverse Speed = false",
+            "pitch.height",
             pitchType, pitch, style
         ) { it, _ -> pitch = it }
     }
@@ -52,14 +56,14 @@ class PitchEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
     var tempo = 1f
     var hasTempo = false
 
-    override fun getStateAsImmutableKey(source: Audio, destination: Camera, time0: Time, time1: Time): Any {
+    override fun getStateAsImmutableKey(source: Video, destination: Camera, time0: Time, time1: Time): Any {
         return Pair(pitch, tempo)
     }
 
     override fun apply(
         getDataSrc: (Int) -> FloatArray,
         dataDst: FloatArray,
-        source: Audio,
+        source: Video,
         destination: Camera,
         time0: Time,
         time1: Time
@@ -83,7 +87,7 @@ class PitchEffect : SoundEffect(Domain.TIME_DOMAIN, Domain.TIME_DOMAIN) {
 
         // nothing to do, should be exact enough
         if (tempo in 0.999f..1.001f) {
-            copy(getDataSrc(0), dataDst)
+            getDataSrc(0).copyInto(dataDst)
             return
         }
 

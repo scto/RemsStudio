@@ -1,39 +1,43 @@
 package me.anno.remsstudio.audio.effects
 
 import me.anno.Engine
-import me.anno.io.Saveable
+import me.anno.engine.inspector.Inspectable
 import me.anno.io.base.BaseWriter
+import me.anno.io.saveable.Saveable
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.audio.effects.falloff.ExponentialFalloff
 import me.anno.remsstudio.audio.effects.falloff.LinearFalloff
 import me.anno.remsstudio.audio.effects.falloff.SquareFalloff
-import me.anno.remsstudio.audio.effects.impl.*
-import me.anno.remsstudio.objects.Audio
+import me.anno.remsstudio.audio.effects.impl.EchoEffect
+import me.anno.remsstudio.audio.effects.impl.EqualizerEffect
+import me.anno.remsstudio.audio.effects.impl.NoiseSuppressionEffect
+import me.anno.remsstudio.audio.effects.impl.PitchEffect
 import me.anno.remsstudio.objects.Camera
-import me.anno.engine.inspector.Inspectable
+import me.anno.remsstudio.objects.video.Video
 import me.anno.ui.Panel
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
 import me.anno.ui.editor.stacked.Option
 import me.anno.ui.editor.stacked.StackPanel
+import me.anno.utils.structures.Collections.filterIsInstance2
 import org.jtransforms.fft.FloatFFT_1D
 
 class SoundPipeline() : Saveable(), Inspectable {
 
-    lateinit var audio: Audio
+    lateinit var audio: Video
     lateinit var camera: Camera
 
-    constructor(audio: Audio) : this() {
+    constructor(audio: Video) : this() {
         this.audio = audio
     }
 
     override fun createInspector(
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (nameDesc: NameDesc) -> SettingCategory
     ) {
-        val effectsGroup = getGroup("Audio Effects", "Audio Effects", "audio-fx")
+        val effectsGroup = getGroup(NameDesc("Audio Effects", "Audio Effects", "obj.audio-fx"))
         effectsGroup += object : StackPanel(
             "Effects Stack",
             "Effects can be added with RMB, are applied one after another",
@@ -52,7 +56,7 @@ class SoundPipeline() : Saveable(), Inspectable {
             override fun setValue(newValue: List<Inspectable>, mask: Int, notify: Boolean): Panel {
                 if (newValue !== effects) {
                     effects.clear()
-                    effects.addAll(newValue.filterIsInstance<SoundEffect>())
+                    effects.addAll(newValue.filterIsInstance2(SoundEffect::class))
                 }
                 return this
             }
@@ -111,7 +115,7 @@ class SoundPipeline() : Saveable(), Inspectable {
     }
 
     override fun setProperty(name: String, value: Any?) {
-        when(name){
+        when (name) {
             "stage" -> {
                 if (value is SoundEffect) {
                     effects.add(value)
@@ -146,22 +150,29 @@ class SoundPipeline() : Saveable(), Inspectable {
         }
 
         fun changeDomain(
-            src: Domain,
             dst: Domain, data: FloatArray,
             fft: FloatFFT_1D = FloatFFT_1D(data.size.toLong())
-        ): FloatFFT_1D {
-            if (src != dst) {
-                when (dst) {
-                    Domain.TIME_DOMAIN -> fft.realInverse(data, true)
-                    Domain.FREQUENCY_DOMAIN -> fft.realForward(data)
-                }
+        ) {
+            /*val rx = min(data.size / 2, 10)
+            val r = (0 until rx)
+            println(
+                "changing ${data.size}x (" +
+                        "${r.map { data[it] }},...," +
+                        "${r.map { data[data.size - rx + it] }}) to $dst"
+            )*/
+            when (dst) {
+                Domain.TIME_DOMAIN -> fft.realInverse(data, true)
+                Domain.FREQUENCY_DOMAIN -> fft.realForward(data)
             }
-            return fft
+            /*println(
+                "  -> (${r.map { data[it] }},...," +
+                        "${r.map { data[data.size - rx + it] }})"
+            )*/
         }
 
         fun option(generator: () -> SoundEffect): Option {
             val sample = generator()
-            return Option(sample.displayName, sample.description, generator)
+            return Option(NameDesc(sample.displayName, sample.description, ""), generator)
         }
 
         /**
@@ -169,7 +180,6 @@ class SoundPipeline() : Saveable(), Inspectable {
          * */
         val options = arrayListOf(
             { EchoEffect() },
-            { AmplitudeEffect() },
             { EqualizerEffect() },
             { PitchEffect() },
             { SquareFalloff() },

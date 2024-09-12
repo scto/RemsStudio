@@ -1,6 +1,7 @@
 package me.anno.remsstudio.ui
 
 import me.anno.config.DefaultStyle
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.RemsStudio
 import me.anno.remsstudio.StudioActions
 import me.anno.remsstudio.ui.MenuUtils.drawTypeInCorner
@@ -20,18 +21,19 @@ class TimeControlsPanel(style: Style) : PanelListX(style) {
     }
 
     init {
-        val showButton = TextButton("Show Time Controls", style)
+        val showButton = TextButton(NameDesc("Show Time Controls"), style)
         val bg = showButton.backgroundColor
+        backgroundColor = Color.mixARGB(backgroundColor, bg, 0.3f)
         fun space(): Panel {
             return SpacerPanel(1, 1, style).apply {
-                backgroundColor = Color.mixARGB(backgroundColor, bg, 0.3f)
+                makeBackgroundTransparent()
                 weight = 1f
             }
         }
 
         fun addButton(name: String, desc: String, action: (Panel) -> Unit) {
             add(
-                TextButton(name, 1.5f, style)
+                TextButton(NameDesc(name), 1.5f, style)
                     .apply {
                         alignmentX = AxisAlignment.FILL
                         alignmentY = AxisAlignment.FILL
@@ -62,7 +64,7 @@ class TimeControlsPanel(style: Style) : PanelListX(style) {
     private val fontColor = style.getColor("textColor", DefaultStyle.fontGray)
     override fun drawBackground(x0: Int, y0: Int, x1: Int, y1: Int, dx: Int, dy: Int) {
         super.drawBackground(x0, y0, x1, y1, dx, dy)
-        drawTypeInCorner("Play Controls", fontColor)
+        drawTypeInCorner("Time Control", fontColor)
     }
 
     override val className: String

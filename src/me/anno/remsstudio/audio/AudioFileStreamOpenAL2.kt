@@ -9,7 +9,7 @@ import me.anno.audio.openal.SoundBuffer
 import me.anno.audio.openal.SoundSource
 import me.anno.io.MediaMetadata
 import me.anno.io.files.FileReference
-import me.anno.remsstudio.objects.Audio
+import me.anno.remsstudio.objects.video.Video
 import me.anno.remsstudio.objects.Camera
 import org.apache.logging.log4j.LogManager
 import org.lwjgl.openal.AL10.*
@@ -25,12 +25,13 @@ import kotlin.math.max
 // done? to fix "AL lib: (EE) ALCwasapiPlayback_mixerProc: Failed to get padding: 0x88890004"
 // we fixed sth like that
 
+@Suppress("MemberVisibilityCanBePrivate")
 class AudioFileStreamOpenAL2(
     file: FileReference,
     repeat: LoopingState,
     var startTime: Double,
     meta: MediaMetadata,
-    sender: Audio,
+    sender: Video,
     listener: Camera,
     speed: Double
 ) : AudioFileStream2(
@@ -39,7 +40,7 @@ class AudioFileStreamOpenAL2(
     meta, sender, listener, speed, playbackSampleRate
 ) {
 
-    constructor(audio: Audio, speed: Double, globalTime: Double, listener: Camera) :
+    constructor(audio: Video, speed: Double, globalTime: Double, listener: Camera) :
             this(
                 audio.file, audio.isLooping.value, globalTime,
                 MediaMetadata.getMeta(audio.file, false)!!,

@@ -3,21 +3,25 @@ package me.anno.remsstudio.objects
 import me.anno.engine.inspector.Inspectable
 import me.anno.gpu.shader.Shader
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.gpu.ShaderLibV2.colorForceFieldBuffer
 import me.anno.remsstudio.gpu.ShaderLibV2.maxColorForceFields
 import me.anno.remsstudio.gpu.ShaderLibV2.uvForceFieldBuffer
 import me.anno.remsstudio.objects.attractors.EffectColoring
 import me.anno.remsstudio.objects.attractors.EffectMorphing
+import me.anno.remsstudio.objects.video.Video
 import me.anno.ui.Style
 import me.anno.ui.base.groups.PanelListY
 import me.anno.ui.editor.SettingCategory
+import me.anno.utils.structures.Collections.filterIsInstance2
 import me.anno.utils.structures.lists.Lists.none2
 import org.joml.Vector3f
 import org.joml.Vector4f
 import kotlin.math.abs
 import kotlin.math.sqrt
 
+@Suppress("MemberVisibilityCanBePrivate")
 abstract class GFXTransform(parent: Transform?) : Transform(parent) {
 
     init {
@@ -42,16 +46,18 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
     }
 
     override fun createInspector(
-        inspected: List<Inspectable>,
-        list: PanelListY,
-        style: Style,
-        getGroup: (title: String, description: String, dictSubPath: String) -> SettingCategory
+        inspected: List<Inspectable>, list: PanelListY, style: Style,
+        getGroup: (NameDesc) -> SettingCategory
     ) {
         super.createInspector(inspected, list, style, getGroup)
-        val c = inspected.filterIsInstance<GFXTransform>()
-        val fx = getGroup("Effects", "Visual Effects Settings", "effects")
+        val c = inspected.filterIsInstance2(GFXTransform::class)
+        val fx = getGroup(NameDesc("Effects", "Visual Effects Settings", "obj.effects"))
         fx += vis(
-            c, "Coloring: Base Color", "Base color for coloring", c.map { it.attractorBaseColor },
+            c,
+            "Coloring: Base Color",
+            "Base color for coloring: What color is chosen when no circle is within the area",
+            "effects.baseColor",
+            c.map { it.attractorBaseColor },
             style
         )
     }
@@ -75,8 +81,7 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
             return
         }
 
-        var morphings = children
-            .filterIsInstance<EffectMorphing>()
+        var morphings = children.filterIsInstance2(EffectMorphing::class)
 
         for (index in morphings.indices) {
             val attr = morphings[index]
@@ -154,18 +159,18 @@ abstract class GFXTransform(parent: Transform?) : Transform(parent) {
             return
         }
 
-        var attractors = children
-            .filterIsInstance<EffectColoring>()
+        var attractors = children.filterIsInstance2(EffectColoring::class)
 
         for (attractor in attractors) {
             attractor.lastLocalTime = attractor.getLocalTime(time)
             attractor.lastInfluence = attractor.influence[attractor.lastLocalTime]
         }
 
-        if (attractors.size > maxColorForceFields)
+        if (attractors.size > maxColorForceFields) {
             attractors = attractors
                 .sortedByDescending { it.lastInfluence }
                 .subList(0, maxColorForceFields)
+        }
 
         shader.v1i("forceFieldColorCount", attractors.size)
         if (attractors.isNotEmpty()) {

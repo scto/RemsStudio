@@ -1,6 +1,7 @@
 package me.anno.remsstudio.objects.particles.forces.impl
 
 import me.anno.io.base.BaseWriter
+import me.anno.language.translation.NameDesc
 import me.anno.maths.Maths.pow
 import me.anno.remsstudio.animation.AnimatedProperty
 import me.anno.remsstudio.objects.inspectable.InspectableAnimProperty
@@ -15,6 +16,7 @@ import org.joml.Vector4f
 import kotlin.math.cos
 import kotlin.math.sin
 
+@Suppress("MemberVisibilityCanBePrivate")
 class TornadoField : ForceField(
     "Tornado",
     "Circular motion around center", "tornado"
@@ -35,9 +37,11 @@ class TornadoField : ForceField(
     override fun listProperties(): List<InspectableAnimProperty> {
         return super.listProperties() + listOf(
             InspectableAnimProperty(
-                exponent,
-                "Exponent",
-                "How quickly the force declines with distance"
+                exponent, NameDesc(
+                    "Exponent",
+                    "How quickly the force declines with distance",
+                    "obj.effect.gravityExponent"
+                )
             )
         )
     }
@@ -68,7 +72,7 @@ class TornadoField : ForceField(
                     stack.translate(pos)
                     stack.scale(visualForceScale * force)
                     stack.rotateY(-angle - 1.57f)
-                    Grid.drawLineMesh(stack, Vector4f(1f), arrowLineModel)
+                    Grid.drawLineMesh(null, stack, Vector4f(1f), arrowLineModel)
                 }
             }
         }
